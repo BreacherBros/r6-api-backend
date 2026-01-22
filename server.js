@@ -5,9 +5,14 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 
-const R6DATA_KEY = process.env.R6DATA_KEY; // API KEY aus ENV
+const R6DATA_KEY = process.env.R6DATA_KEY;
 const BASE_URL = "https://api.r6data.eu";
 
+/**
+ * Endpoint:
+ * /player?platform=psn&name=Pater_Odor
+ * /player?platform=psn&name=SomaRay_Jr
+ */
 app.get("/player", async (req, res) => {
   try {
     const { platform, name } = req.query;
@@ -16,14 +21,16 @@ app.get("/player", async (req, res) => {
       return res.status(400).json({ error: "Missing platform or name" });
     }
 
-    let platformType = platform.toUpperCase();
-    let platformFamilies = "console";
+    // ---- r6data Parameter Mapping ----
+    let platformType = platform.toUpperCase(); // PSN, XBOX, PC
+    let platformFamilies = "console";          // default
 
     if (platformType === "PC") platformFamilies = "pc";
     if (platformType === "PSN") platformFamilies = "console";
     if (platformType === "XBOX") platformFamilies = "console";
 
-    const url = `https://api.r6data.eu/api/stats` +
+    const url =
+      `${BASE_URL}/api/stats` +
       `?nameOnPlatform=${encodeURIComponent(name)}` +
       `&platformType=${platformType}` +
       `&platform_families=${platformFamilies}` +
@@ -31,7 +38,7 @@ app.get("/player", async (req, res) => {
 
     const response = await fetch(url, {
       headers: {
-        "api-key": process.env.R6DATA_KEY,
+        "api-key": R6DATA_KEY,
         "accept": "application/json"
       }
     });
@@ -39,47 +46,74 @@ app.get("/player", async (req, res) => {
     const raw = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({ error: "R6DATA API error", details: raw });
+      return res.status(500).json({
+        error: "R6DATA API error",
+        details: raw
+      });
     }
 
-    // --------- MAPPING ---------
+    // --------- AGGREGATION LOGIC ---------
     const family = raw.platform_families_full_profiles?.[0];
     const boards = family?.board_ids_full_profiles || [];
 
-    const rankedBoard = boards.find(b => b.board_id === "ranked");
-    const standardBoard = boards.find(b => b.board_id === "standard");
+    let kills = 0;
+    let deaths = 0;
+    let wins = 0;
+    let losses = 0;
+    let rank = 0;
+    let mmr = 0;
+    let maxRank = 0;
+    let maxMmr = 0;
 
-    const rankedProfile = rankedBoard?.full_profiles?.[0];
-    const standardProfile = standardBoard?.full_profiles?.[0];
+    for (const board of boards) {
+      const profile = board.full_profiles?.[0];
+      if (!profile) continue;
 
-    const rankedStats = rankedProfile?.season_statistics || {};
-    const rankedProfileInfo = rankedProfile?.profile || {};
+      const stats = profile.season_statistics || {};
+      const prof = profile.profile || {};
 
-    const kills = rankedStats.kills || 0;
-    const deaths = rankedStats.deaths || 0;
-    const wins = rankedStats.match_outcomes?.wins || 0;
-    const losses = rankedStats.match_outcomes?.losses || 0;
+      kills += stats.kills || 0;
+      deaths += stats.deaths || 0;
+      wins += stats.match_outcomes?.wins || 0;
+      losses += stats.match_outcomes?.losses || 0;
 
-    const kd = deaths > 0 ? (kills / deaths).toFixed(2) : kills;
+      // Ranked specific data
+      if (board.board_id === "ranked") {
+        rank = prof.rank || 0;
+        mmr = prof.rank_points || 0;
+        maxRank = prof.max_rank || 0;
+        maxMmr = prof.max_rank_points || 0;
+      }
+    }
 
+    const kd = deaths > 0 ? Number((kills / deaths).toFixed(2)) : 0;
+
+    // --------- FINAL CLEAN JSON ---------
     const data = {
       username: name,
+      platform: platformType,
       kills,
       deaths,
       wins,
       losses,
       kd,
-      rank: rankedProfileInfo.rank || 0,
-      mmr: rankedProfileInfo.rank_points || 0,
-      maxRank: rankedProfileInfo.max_rank || 0,
-      maxMmr: rankedProfileInfo.max_rank_points || 0
+      rank,
+      mmr,
+      maxRank,
+      maxMmr
     };
 
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
+    res.status(500).json({
+      error: "Server error",
+      details: err.message
+    });
   }
 });
 
+// ---- Server Start ----
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("R6 API running on port", PORT));
+app.listen(PORT, () => {
+  console.log("R6 API backend running on port", PORT);
+});
