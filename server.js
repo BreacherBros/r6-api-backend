@@ -16,14 +16,26 @@ app.get("/player", async (req, res) => {
       return res.status(400).json({ error: "Missing platform or name" });
     }
 
-  const url = `${BASE_URL}/api/stats?platform=${platform}&name=${encodeURIComponent(name)}&type=stats`;
+    // Mapping auf r6data Parameter
+    let platformType = platform.toUpperCase();   // PSN, XBOX, PC
+    let platformFamilies = "SONY";                // default
 
-const response = await fetch(url, {
-  headers: {
-    "api-key": R6DATA_KEY,
-    "accept": "application/json"
-  }
-});
+    if (platformType === "PSN") platformFamilies = "SONY";
+    if (platformType === "XBOX") platformFamilies = "MICROSOFT";
+    if (platformType === "PC") platformFamilies = "UBISOFT";
+
+    const url = `https://api.r6data.eu/api/stats` +
+      `?nameOnPlatform=${encodeURIComponent(name)}` +
+      `&platformType=${platformType}` +
+      `&platform_families=${platformFamilies}` +
+      `&type=stats`;
+
+    const response = await fetch(url, {
+      headers: {
+        "api-key": process.env.R6DATA_KEY,
+        "accept": "application/json"
+      }
+    });
 
     const data = await response.json();
 
