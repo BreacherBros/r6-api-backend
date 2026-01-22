@@ -40,9 +40,22 @@ app.get("/player", async (req, res) => {
   }
 });
 
-app.get("/", (req, res) => {
-  res.send("R6 API Backend Running");
-});
+app.get("/player", async (req, res) => {
+  const { platform, name } = req.query;
 
+  try {
+    const response = await fetch(`https://rainbow-six.p.rapidapi.com/profile/${platform}/${name}`, {
+      headers: {
+        "x-rapidapi-key": process.env.RAPIDAPI_KEY,
+        "x-rapidapi-host": "rainbow-six.p.rapidapi.com"
+      }
+    });
+
+    const data = await response.json();
+    res.json(data); // <-- RAW DATA direkt ausgeben
+  } catch (err) {
+    res.status(500).json({ error: "API Error", details: err.message });
+  }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("API running on port", PORT));
