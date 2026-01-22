@@ -16,9 +16,8 @@ app.get("/player", async (req, res) => {
       return res.status(400).json({ error: "Missing platform or name" });
     }
 
-    // r6data parameter mapping
-    let platformType = platform.toUpperCase(); // PSN, XBOX, PC
-    let platformFamilies = "console";          // default
+    let platformType = platform.toUpperCase();
+    let platformFamilies = "console";
 
     if (platformType === "PC") platformFamilies = "pc";
     if (platformType === "PSN") platformFamilies = "console";
@@ -37,11 +36,44 @@ app.get("/player", async (req, res) => {
       }
     });
 
-    const data = await response.json();
+    const raw = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({ error: "R6DATA API error", details: data });
+      return res.status(500).json({ error: "R6DATA API error", details: raw });
     }
+
+    // --------- MAPPING ---------
+    const family = raw.platform_families_full_profiles?.[0];
+    const boards = family?.board_ids_full_profiles || [];
+
+    const rankedBoard = boards.find(b => b.board_id === "ranked");
+    const standardBoard = boards.find(b => b.board_id === "standard");
+
+    const rankedProfile = rankedBoard?.full_profiles?.[0];
+    const standardProfile = standardBoard?.full_profiles?.[0];
+
+    const rankedStats = rankedProfile?.season_statistics || {};
+    const rankedProfileInfo = rankedProfile?.profile || {};
+
+    const kills = rankedStats.kills || 0;
+    const deaths = rankedStats.deaths || 0;
+    const wins = rankedStats.match_outcomes?.wins || 0;
+    const losses = rankedStats.match_outcomes?.losses || 0;
+
+    const kd = deaths > 0 ? (kills / deaths).toFixed(2) : kills;
+
+    const data = {
+      username: name,
+      kills,
+      deaths,
+      wins,
+      losses,
+      kd,
+      rank: rankedProfileInfo.rank || 0,
+      mmr: rankedProfileInfo.rank_points || 0,
+      maxRank: rankedProfileInfo.max_rank || 0,
+      maxMmr: rankedProfileInfo.max_rank_points || 0
+    };
 
     res.json(data);
   } catch (err) {
