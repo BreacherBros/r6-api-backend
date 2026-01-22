@@ -16,7 +16,7 @@ app.get("/player", async (req, res) => {
       return res.status(400).json({ error: "Missing platform or name" });
     }
 
-    const url = `${BASE_URL}/api/stats?platform=${platform}&name=${encodeURIComponent(name)}`;
+    const url = `${BASE_URL}/api/stats?platform=${platform}&name=${encodeURIComponent(name)}&type=all`;
 
     const response = await fetch(url, {
       headers: {
