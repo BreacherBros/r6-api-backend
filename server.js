@@ -5,11 +5,11 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 
-const R6DATA_KEY = process.env.R6DATA_KEY;
-const BASE_URL = "https://api.r6data.eu";
+const TRN_API_KEY = process.env.TRN_API_KEY;
+const BASE_URL = "https://api.tracker.gg/api/v2/r6siege/standard/profile";
 
 /**
- * Endpoint:
+ * Example:
  * /player?platform=psn&name=Pater_Odor
  * /player?platform=psn&name=SomaRay_Jr
  */
@@ -21,99 +21,52 @@ app.get("/player", async (req, res) => {
       return res.status(400).json({ error: "Missing platform or name" });
     }
 
-    // ---- r6data Parameter Mapping ----
-    let platformType = platform.toUpperCase(); // PSN, XBOX, PC
-    let platformFamilies = "console";          // default
-
-    if (platformType === "PC") platformFamilies = "pc";
-    if (platformType === "PSN") platformFamilies = "console";
-    if (platformType === "XBOX") platformFamilies = "console";
-
-    const url =
-      `${BASE_URL}/api/stats` +
-      `?nameOnPlatform=${encodeURIComponent(name)}` +
-      `&platformType=${platformType}` +
-      `&platform_families=${platformFamilies}` +
-      `&type=stats`;
+    const url = `${BASE_URL}/${platform}/${encodeURIComponent(name)}`;
 
     const response = await fetch(url, {
       headers: {
-        "api-key": R6DATA_KEY,
+        "TRN-Api-Key": TRN_API_KEY,
         "accept": "application/json"
       }
     });
 
-    const raw = await response.json();
+    const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({
-        error: "R6DATA API error",
-        details: raw
-      });
+      return res.status(500).json({ error: "Tracker API error", details: data });
     }
 
-    // --------- AGGREGATION LOGIC ---------
-    const family = raw.platform_families_full_profiles?.[0];
-    const boards = family?.board_ids_full_profiles || [];
+    // --------- Mapping ---------
+    const segments = data.data.segments;
 
-    let kills = 0;
-    let deaths = 0;
-    let wins = 0;
-    let losses = 0;
-    let rank = 0;
-    let mmr = 0;
-    let maxRank = 0;
-    let maxMmr = 0;
+    const overview = segments.find(s => s.type === "overview");
+    const ranked = segments.find(s => s.type === "ranked");
 
-    for (const board of boards) {
-      const profile = board.full_profiles?.[0];
-      if (!profile) continue;
+    const val = (obj, key) =>
+      obj?.stats?.[key]?.displayValue ||
+      obj?.stats?.[key]?.value ||
+      0;
 
-      const stats = profile.season_statistics || {};
-      const prof = profile.profile || {};
-
-      kills += stats.kills || 0;
-      deaths += stats.deaths || 0;
-      wins += stats.match_outcomes?.wins || 0;
-      losses += stats.match_outcomes?.losses || 0;
-
-      // Ranked specific data
-      if (board.board_id === "ranked") {
-        rank = prof.rank || 0;
-        mmr = prof.rank_points || 0;
-        maxRank = prof.max_rank || 0;
-        maxMmr = prof.max_rank_points || 0;
-      }
-    }
-
-    const kd = deaths > 0 ? Number((kills / deaths).toFixed(2)) : 0;
-
-    // --------- FINAL CLEAN JSON ---------
-    const data = {
-      username: name,
-      platform: platformType,
-      kills,
-      deaths,
-      wins,
-      losses,
-      kd,
-      rank,
-      mmr,
-      maxRank,
-      maxMmr
+    const result = {
+      username: data.data.platformInfo.platformUserHandle,
+      level: val(overview, "level"),
+      kd: val(overview, "kd"),
+      wins: val(overview, "wins"),
+      losses: val(overview, "losses"),
+      kills: val(overview, "kills"),
+      deaths: val(overview, "deaths"),
+      headshots: val(overview, "headshots"),
+      rank: val(ranked, "rankName"),
+      mmr: val(ranked, "rating")
     };
 
-    res.json(data);
+    res.json(result);
   } catch (err) {
-    res.status(500).json({
-      error: "Server error",
-      details: err.message
-    });
+    res.status(500).json({ error: "Server error", details: err.message });
   }
 });
 
-// ---- Server Start ----
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("R6 API backend running on port", PORT);
+  console.log("Tracker.gg API backend running on port", PORT);
 });
