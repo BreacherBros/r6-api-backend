@@ -27,7 +27,7 @@ app.get("/player", async (req, res) => {
 
     const response = await fetch(url, {
       headers: {
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Key": 6a1c50517dmsh8b615905bae326ep13026fjsnb7ce03bf48e2,
         "X-RapidAPI-Host": "rainbow-six-siege.p.rapidapi.com"
       }
     });
