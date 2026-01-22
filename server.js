@@ -67,6 +67,16 @@ app.get("/player", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+// ---- DEBUG ROUTE ----
+app.get("/debug-key", (req, res) => {
+  res.json({
+    keyExists: !!process.env.TRN_API_KEY,
+    keyLength: process.env.TRN_API_KEY?.length || 0,
+    keyPreview: process.env.TRN_API_KEY
+      ? process.env.TRN_API_KEY.slice(0, 4) + "..." + process.env.TRN_API_KEY.slice(-4)
+      : null
+  });
+});
 app.listen(PORT, () => {
   console.log("Tracker.gg API backend running on port", PORT);
 });
