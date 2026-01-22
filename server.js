@@ -5,11 +5,7 @@ import cors from "cors";
 const app = express();
 app.use(cors());
 
-const RAPID_KEY = process.env.RAPIDAPI_KEY;
-
-// ✅ richtige API
-const API_HOST = "rainbow-six.p.rapidapi.com";
-const API_BASE = "https://rainbow-six.p.rapidapi.com";
+const API_BASE = "https://api.henrikdev.xyz/r6/v1";
 
 app.get("/player", async (req, res) => {
   try {
@@ -21,27 +17,18 @@ app.get("/player", async (req, res) => {
 
     const url = `${API_BASE}/profile/${platform}/${encodeURIComponent(name)}`;
 
-    const response = await fetch(url, {
-      headers: {
-        "x-rapidapi-key": RAPID_KEY,
-        "x-rapidapi-host": API_HOST
-      }
-    });
-
+    const response = await fetch(url);
     const data = await response.json();
 
     if (!response.ok) {
       return res.status(500).json({ error: "API Error", details: data });
     }
 
-    // 🔎 DEBUG RAW
-    console.log("RAW API DATA:", JSON.stringify(data, null, 2));
-
-    res.json(data); // RAW JSON an Frontend
+    res.json(data);
   } catch (err) {
     res.status(500).json({ error: "Server Error", details: err.message });
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log("API running on port", PORT));
