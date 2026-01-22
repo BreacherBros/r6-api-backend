@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 
 const TRN_API_KEY = process.env.TRN_API_KEY;
-const BASE_URL = "https://api.tracker.gg/api/v2/r6siege/standard/profile";
+const BASE_URL = "https://public-api.tracker.gg/v2/r6siege/standard/profile";
 
 /**
  * Example:
