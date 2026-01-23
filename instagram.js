@@ -21,16 +21,27 @@ router.get("/instagram-latest", async (req, res) => {
       });
     }
 
-    const reel = data.data.reels[0]; // neuestes Reel
+  const reel = data.data.reels[0];
 
-    const shortcode = reel.shortcode || reel.code || null;
-    const caption = reel?.caption?.text || "";
-    const thumbnail =
-      reel?.image_versions2?.candidates?.[0]?.url || null;
+// ===== ENSEMBLEDATA MAPPING =====
+const shortcode = reel.code || reel.shortcode || null;
 
-    const video_url =
-      reel?.video_versions?.[0]?.url || null;
+const caption =
+  reel.caption?.text ||
+  reel.caption ||
+  "";
 
+const thumbnail =
+  reel.thumbnail_url ||
+  reel.image_url ||
+  reel.display_url ||
+  null;
+
+const video_url =
+  reel.video_url ||
+  reel.video_versions?.[0]?.url ||
+  reel.video ||
+  null;
     res.json({
       id: reel.id,
       shortcode,
