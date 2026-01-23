@@ -2,7 +2,7 @@ import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 import youtubeRoutes from "./youtube.js";
-
+import instagramRoutes from "./instagram.js";
 const app = express();
 
 /* =========================
@@ -16,11 +16,12 @@ app.use(cors({
 
 app.use(express.json());
 
+
 /* =========================
    ROUTES
 ========================= */
 app.use("/api", youtubeRoutes);
-
+app.use("/api", instagramRoutes);
 /* =========================
    ROOT TEST
 ========================= */
