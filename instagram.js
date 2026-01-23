@@ -4,20 +4,23 @@ import fetch from "node-fetch";
 const router = express.Router();
 
 const INSTA_API_KEY = process.env.INSTA_API_KEY;
-const USER_ID = "71865672761"; // breacherbros user_id
+const USER_ID = "71865672761"; // breacherbros
 
 router.get("/instagram-latest", async (req, res) => {
   try {
-    const url = `https://ensembledata.com/apis/instagram/user/reels?user_id=${USER_ID}&depth=1&chunk_size=1&token=${INSTA_API_KEY}`;
+    const url = `https://ensembledata.com/apis/instagram/user/reels?user_id=${USER_ID}&depth=1&chunk_size=3&token=${INSTA_API_KEY}`;
 
     const r = await fetch(url);
     const data = await r.json();
 
     if (!data?.data?.reels || data.data.reels.length === 0) {
-      return res.status(404).json({ error: "No Instagram reels found", raw: data });
+      return res.status(404).json({ 
+        error: "No Instagram reels found", 
+        raw: data 
+      });
     }
 
-    const reel = data.data.reels[0];
+    const reel = data.data.reels[0]; // neuestes Reel
 
     const shortcode = reel.shortcode || reel.code || null;
     const caption = reel?.caption?.text || "";
