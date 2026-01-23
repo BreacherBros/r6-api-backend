@@ -1,8 +1,10 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import youtubeRoutes from "./youtube.js";
 
 const app = express();
+app.use("/api", youtubeRoutes);
 app.use(cors());
 
 const TRN_API_KEY = process.env.TRN_API_KEY;
