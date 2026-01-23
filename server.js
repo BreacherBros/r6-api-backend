@@ -4,9 +4,33 @@ import cors from "cors";
 import youtubeRoutes from "./youtube.js";
 
 const app = express();
-app.use("/api", youtubeRoutes);
-app.use(cors());
 
+/* =========================
+   GLOBAL CORS (FULL OPEN)
+========================= */
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type", "Authorization", "TRN-Api-Key"]
+}));
+
+app.use(express.json());
+
+/* =========================
+   ROUTES
+========================= */
+app.use("/api", youtubeRoutes);
+
+/* =========================
+   ROOT TEST
+========================= */
+app.get("/", (req, res) => {
+  res.send("Backend running");
+});
+
+/* =========================
+   R6 TRACKER API
+========================= */
 const TRN_API_KEY = process.env.TRN_API_KEY;
 const BASE_URL = "https://public-api.tracker.gg/v2/r6siege/standard/profile";
 
@@ -68,7 +92,10 @@ app.get("/player", async (req, res) => {
   }
 });
 
+/* =========================
+   SERVER START
+========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("Tracker.gg API backend running on port", PORT);
+  console.log("Backend running on port", PORT);
 });
