@@ -6,12 +6,16 @@ const router = express.Router();
 const INSTA_API_KEY = process.env.INSTA_API_KEY;
 const USER_ID = "71865672761"; // breacherbros
 
+/* =========================
+   Latest Instagram Reel
+========================= */
 router.get("/instagram-latest", async (req, res) => {
   try {
     const url = `https://ensembledata.com/apis/instagram/user/reels?user_id=${USER_ID}&depth=1&chunk_size=3&token=${INSTA_API_KEY}`;
 
     const r = await fetch(url);
     const data = await r.json();
+
     console.log("INSTA RAW:", JSON.stringify(data, null, 2));
 
     if (!data?.data?.reels || data.data.reels.length === 0) {
@@ -21,36 +25,29 @@ router.get("/instagram-latest", async (req, res) => {
       });
     }
 
-  const reel = data.data.reels[0];
+    const reel = data.data.reels[0];
 
-// ===== ENSEMBLEDATA MAPPING =====
-const shortcode = reel.code || reel.shortcode || null;
+    /* ===== REAL INSTAGRAM STRUCTURE ===== */
 
-const caption =
-  reel.caption?.text ||
-  reel.caption ||
-  "";
+    const id = reel?.id || null;
 
-const thumbnail =
-  reel.thumbnail_url ||
-  reel.image_url ||
-  reel.display_url ||
-  null;
+    const caption = reel?.caption?.text || "";
 
-const video_url =
-  reel.video_url ||
-  reel.video_versions?.[0]?.url ||
-  reel.video ||
-  null;
+    const video_url = reel?.video_versions?.[0]?.url || null;
+
+    const thumbnail = reel?.display_uri || null;
+
+    const permalink = id
+      ? `https://www.instagram.com/reel/${id}/`
+      : null;
+
+    /* ===== RESPONSE ===== */
     res.json({
-      id: reel.id,
-      shortcode,
+      id,
       video_url,
       thumbnail,
       caption,
-      permalink: shortcode
-        ? `https://www.instagram.com/reel/${shortcode}/`
-        : null
+      permalink
     });
 
   } catch (err) {
