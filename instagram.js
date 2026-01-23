@@ -4,67 +4,31 @@ import fetch from "node-fetch";
 const router = express.Router();
 
 const INSTA_API_KEY = process.env.INSTA_API_KEY;
-const USERNAME = "breacherbros";
+const USER_ID = "71865672761"; // breacherbros user_id
 
-/* =========================
-   Latest Instagram Reel
-========================= */
 router.get("/instagram-latest", async (req, res) => {
   try {
-    const url = `https://ensembledata.com/apis/instagram/user/reels?username=${USERNAME}&chunk_size=5&token=${INSTA_API_KEY}`;
+    const url = `https://ensembledata.com/apis/instagram/user/reels?user_id=${USER_ID}&depth=1&chunk_size=1&token=${INSTA_API_KEY}`;
 
     const r = await fetch(url);
     const data = await r.json();
 
-    /* =========================
-       RAW DATA DEBUG (optional)
-    ========================= */
-    // console.log(JSON.stringify(data, null, 2));
-
-    let mediaList = [];
-
-    // mögliche Datenpfade
-    if (data?.data?.reels?.length) mediaList = data.data.reels;
-    else if (data?.data?.items?.length) mediaList = data.data.items;
-    else if (data?.data?.media?.length) mediaList = data.data.media;
-
-    if (!mediaList.length) {
-      return res.status(404).json({ error: "No Instagram media found" });
+    if (!data?.data?.reels || data.data.reels.length === 0) {
+      return res.status(404).json({ error: "No Instagram reels found", raw: data });
     }
 
-    // 🔥 neuestes Reel/Video finden
-    const reel =
-      mediaList.find(m => m.media_type === 2 || m.video_versions) ||
-      mediaList[0];
+    const reel = data.data.reels[0];
 
-    const shortcode =
-      reel?.shortcode ||
-      reel?.code ||
-      reel?.id ||
-      null;
-
-    const caption =
-      reel?.caption?.text ||
-      reel?.caption ||
-      "";
-
+    const shortcode = reel.shortcode || reel.code || null;
+    const caption = reel?.caption?.text || "";
     const thumbnail =
-      reel?.image_versions2?.candidates?.[0]?.url ||
-      reel?.thumbnail_url ||
-      reel?.display_url ||
-      null;
+      reel?.image_versions2?.candidates?.[0]?.url || null;
 
     const video_url =
-      reel?.video_versions?.[0]?.url ||
-      reel?.video_url ||
-      null;
-
-    if (!shortcode && !video_url) {
-      return res.status(404).json({ error: "No usable reel found" });
-    }
+      reel?.video_versions?.[0]?.url || null;
 
     res.json({
-      id: reel.id || null,
+      id: reel.id,
       shortcode,
       video_url,
       thumbnail,
