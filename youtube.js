@@ -5,26 +5,41 @@ const router = express.Router();
 
 const YT_API_KEY = process.env.YOUTUBE_API_KEY;
 const CHANNEL_ID = "UCBkzbmUXRMiwfb2yeV9iuyQ";
-const UPLOADS_PLAYLIST = "UUBkzbmUXRMiwfb2yeV9iuyQ"; // UU + ChannelID ohne UC
 
 // Test-Route
 router.get("/test", (req, res) => {
   res.json({ ok: true, msg: "youtube route works" });
 });
 
-// Neuestes Video (Uploads Playlist)
+// Helper: Uploads Playlist holen
+async function getUploadsPlaylist() {
+  const url = `https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id=${CHANNEL_ID}&key=${YT_API_KEY}`;
+  const r = await fetch(url);
+  const data = await r.json();
+
+  if (!data.items || !data.items.length) return null;
+
+  return data.items[0].contentDetails.relatedPlaylists.uploads;
+}
+
+// Neuestes Video
 router.get("/youtube-latest", async (req, res) => {
   try {
-    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${UPLOADS_PLAYLIST}&maxResults=1&key=${YT_API_KEY}`;
+    const uploadsPlaylist = await getUploadsPlaylist();
 
-    const r = await fetch(url);
-    const data = await r.json();
+    if (!uploadsPlaylist) {
+      return res.status(404).json({ error: "Uploads playlist not found" });
+    }
 
-    if (!data.items || !data.items.length) {
+    const playlistUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${uploadsPlaylist}&maxResults=1&key=${YT_API_KEY}`;
+    const r2 = await fetch(playlistUrl);
+    const data2 = await r2.json();
+
+    if (!data2.items || !data2.items.length) {
       return res.status(404).json({ error: "No videos in uploads playlist" });
     }
 
-    const v = data.items[0].snippet;
+    const v = data2.items[0].snippet;
 
     res.json({
       videoId: v.resourceId.videoId,
