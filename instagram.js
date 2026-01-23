@@ -12,6 +12,7 @@ router.get("/instagram-latest", async (req, res) => {
 
     const r = await fetch(url);
     const data = await r.json();
+    console.log("INSTA RAW:", JSON.stringify(data, null, 2));
 
     if (!data?.data?.reels || data.data.reels.length === 0) {
       return res.status(404).json({ 
