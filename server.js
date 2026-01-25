@@ -2,7 +2,7 @@ import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 import youtubeRoutes from "./youtube.js";
-import instagramRoutes from "./instagram.js";
+import tiktokRoutes from "./tiktok.js";
 const app = express();
 
 /* =========================
@@ -21,7 +21,7 @@ app.use(express.json());
    ROUTES
 ========================= */
 app.use("/api", youtubeRoutes);
-app.use("/api", instagramRoutes);
+app.use("/api", tiktokRoutes);
 /* =========================
    ROOT TEST
 ========================= */
