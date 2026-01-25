@@ -4,31 +4,36 @@ import fetch from "node-fetch";
 const router = express.Router();
 
 const USERNAME = "breacherbros";
+const RAPID_KEY = process.env.TIKTOK_API_KEY;
 
 /* =========================
-   Latest TikTok from Profile
+   Latest TikTok
 ========================= */
 router.get("/tiktok-latest", async (req, res) => {
   try {
-    const url = `https://www.tikwm.com/api/user/posts?unique_id=${USERNAME}&count=10`;
+    const url = `https://scraptik.p.rapidapi.com/user-posts?username=${USERNAME}&count=5`;
 
-    const r = await fetch(url);
+    const r = await fetch(url, {
+      headers: {
+        "X-RapidAPI-Key": RAPID_KEY,
+        "X-RapidAPI-Host": "scraptik.p.rapidapi.com"
+      }
+    });
+
     const data = await r.json();
 
     if (!data?.data?.videos || data.data.videos.length === 0) {
       return res.status(404).json({ error: "No TikTok videos found" });
     }
 
-    // immer das neueste Video
-    const video = data.data.videos[0];
+    const v = data.data.videos[0];
 
     res.json({
-      id: video.video_id,
-      title: video.title || "",
-      cover: video.cover || null,
-      play: video.play || null,
-      author: USERNAME,
-      link: `https://www.tiktok.com/@${USERNAME}/video/${video.video_id}`
+      id: v.video_id,
+      title: v.title || "",
+      cover: v.cover || null,
+      play: v.play || null,
+      link: `https://www.tiktok.com/@${USERNAME}/video/${v.video_id}`
     });
 
   } catch (err) {
