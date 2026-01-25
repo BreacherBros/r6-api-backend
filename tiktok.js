@@ -5,6 +5,8 @@ const router = express.Router();
 
 const USERNAME = "breacherbros";
 const RAPID_KEY = process.env.TIKTOK_API_KEY;
+const data = await r.json();
+console.log("TIKTOK RAW:", JSON.stringify(data, null, 2));
 
 /* =========================
    Latest TikTok
