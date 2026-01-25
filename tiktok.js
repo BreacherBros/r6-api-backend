@@ -4,28 +4,24 @@ import fetch from "node-fetch";
 const router = express.Router();
 
 const USERNAME = "breacherbros";
-const RAPID_KEY = process.env.TIKTOK_API_KEY;
-const data = await r.json();
-console.log("TIKTOK RAW:", JSON.stringify(data, null, 2));
+const RAPID_API_KEY = process.env.TIKTOK_API_KEY;
 
-/* =========================
-   Latest TikTok
-========================= */
 router.get("/tiktok-latest", async (req, res) => {
   try {
-    const url = `https://scraptik.p.rapidapi.com/user-posts?username=${USERNAME}&count=5`;
+    const url = `https://tiktok-scraper7.p.rapidapi.com/user/posts?username=${USERNAME}&count=5`;
 
     const r = await fetch(url, {
       headers: {
-        "X-RapidAPI-Key": RAPID_KEY,
-        "X-RapidAPI-Host": "scraptik.p.rapidapi.com"
+        "X-RapidAPI-Key": RAPID_API_KEY,
+        "X-RapidAPI-Host": "tiktok-scraper7.p.rapidapi.com"
       }
     });
 
     const data = await r.json();
+    console.log("TIKTOK RAW:", JSON.stringify(data, null, 2));
 
     if (!data?.data?.videos || data.data.videos.length === 0) {
-      return res.status(404).json({ error: "No TikTok videos found" });
+      return res.status(404).json({ error: "No TikTok videos found", raw: data });
     }
 
     const v = data.data.videos[0];
