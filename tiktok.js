@@ -3,35 +3,37 @@ import fetch from "node-fetch";
 
 const router = express.Router();
 
-const USERNAME = "breacherbros";
-const RAPID_API_KEY = process.env.TIKTOK_API_KEY;
+// ⚠️ MUSS JSON API URL SEIN
+const DATASET_URL = "https://api.apify.com/v2/datasets/DEINE_DATASET_ID/items?clean=true&format=json";
 
 router.get("/tiktok-latest", async (req, res) => {
   try {
-    const url = `https://tiktok-scraper7.p.rapidapi.com/user/posts?username=${USERNAME}&count=5`;
-
-    const r = await fetch(url, {
-      headers: {
-        "X-RapidAPI-Key": RAPID_API_KEY,
-        "X-RapidAPI-Host": "tiktok-scraper7.p.rapidapi.com"
-      }
-    });
-
+    const r = await fetch(DATASET_URL);
     const data = await r.json();
-    console.log("TIKTOK RAW:", JSON.stringify(data, null, 2));
 
-    if (!data?.data?.videos || data.data.videos.length === 0) {
-      return res.status(404).json({ error: "No TikTok videos found", raw: data });
+    console.log("TIKTOK DATA:", Array.isArray(data), data?.length);
+
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(404).json({ 
+        error: "No TikTok videos found",
+        rawType: typeof data,
+        raw: data
+      });
     }
 
-    const v = data.data.videos[0];
+    const video = data[0];
+
+    const id = video.id;
+    const caption = video.text || "";
+    const thumbnail = video.videoMeta?.coverUrl || null;
+
+    const permalink = `https://www.tiktok.com/@breacherbros/video/${id}`;
 
     res.json({
-      id: v.video_id,
-      title: v.title || "",
-      cover: v.cover || null,
-      play: v.play || null,
-      link: `https://www.tiktok.com/@${USERNAME}/video/${v.video_id}`
+      id,
+      caption,
+      thumbnail,
+      permalink
     });
 
   } catch (err) {
