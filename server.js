@@ -3,6 +3,7 @@ import fetch from "node-fetch";
 import cors from "cors";
 import youtubeRoutes from "./youtube.js";
 import tiktokRoutes from "./tiktok.js";
+
 const app = express();
 
 /* =========================
@@ -16,12 +17,12 @@ app.use(cors({
 
 app.use(express.json());
 
-
 /* =========================
    ROUTES
 ========================= */
 app.use("/api", youtubeRoutes);
 app.use("/api", tiktokRoutes);
+
 /* =========================
    ROOT TEST
 ========================= */
@@ -60,10 +61,13 @@ app.get("/player", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({ error: "Tracker API error", details: data });
+      return res.status(500).json({ 
+        error: "Tracker API error", 
+        details: data 
+      });
     }
 
-    // --------- Mapping ---------
+    /* --------- Mapping --------- */
     const segments = data.data.segments;
 
     const overview = segments.find(s => s.type === "overview");
@@ -87,18 +91,24 @@ app.get("/player", async (req, res) => {
       mmr: val(ranked, "rating")
     };
 
-try {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.setHeader("Surrogate-Control", "no-store");
+    /* =========================
+       CACHE DISABLE (LIVE DATA)
+    ========================= */
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
 
-  res.json(result);
+    res.json(result);
 
-} catch (err) {
-  res.status(500).json({ error: "Server error", details: err.message });
-}
-     
+  } catch (err) {
+    res.status(500).json({ 
+      error: "Server error", 
+      details: err.message 
+    });
+  }
+});
+
 /* =========================
    SERVER START
 ========================= */
