@@ -87,8 +87,12 @@ app.get("/player", async (req, res) => {
       mmr: val(ranked, "rating")
     };
 
-    res.json(result);
-  } catch (err) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+res.setHeader("Pragma", "no-cache");
+res.setHeader("Expires", "0");
+
+res.json(result);
+   catch (err) {
     res.status(500).json({ error: "Server error", details: err.message });
   }
 });
