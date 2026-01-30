@@ -87,16 +87,18 @@ app.get("/player", async (req, res) => {
       mmr: val(ranked, "rating")
     };
 
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-res.setHeader("Pragma", "no-cache");
-res.setHeader("Expires", "0");
+try {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
 
-res.json(result);
-   catch (err) {
-    res.status(500).json({ error: "Server error", details: err.message });
-  }
-});
+  res.json(result);
 
+} catch (err) {
+  res.status(500).json({ error: "Server error", details: err.message });
+}
+     
 /* =========================
    SERVER START
 ========================= */
