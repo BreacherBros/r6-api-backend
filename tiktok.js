@@ -10,17 +10,6 @@ const DATASET_URL =
   "https://api.apify.com/v2/datasets/Ik271gPsA3xT88xc3/items?clean=true&format=json&limit=50";
 
 /* =========================
-   Helper: Timestamp ermitteln
-========================= */
-const getTimestamp = (video) => {
-  if (video.createTimeISO) return new Date(video.createTimeISO).getTime();
-  if (video.createTime) return video.createTime * 1000; // Unix seconds
-  if (video.timestamp) return new Date(video.timestamp).getTime();
-  if (video.collectedAt) return new Date(video.collectedAt).getTime();
-  return 0;
-};
-
-/* =========================
    Latest TikTok Endpoint
 ========================= */
 router.get("/tiktok-latest", async (req, res) => {
@@ -39,22 +28,16 @@ router.get("/tiktok-latest", async (req, res) => {
       });
     }
 
-    // 🔥 wirklich neuestes TikTok ermitteln
-    const video = data.sort(
-      (a, b) => getTimestamp(b) - getTimestamp(a)
-    )[0];
+    // 🔥 DAS neueste TikTok laut Dataset
+    const video = data[data.length - 1];
 
-    const result = {
+    res.json({
       id: video.id ?? null,
       caption: video.text ?? "",
       thumbnail: video.videoMeta?.coverUrl ?? null,
       permalink: video.webVideoUrl ?? null,
-      createdAt:
-        video.createTimeISO ??
-        (video.createTime ? new Date(video.createTime * 1000).toISOString() : null)
-    };
-
-    res.json(result);
+      collectedAt: video.collectedAt ?? null
+    });
 
   } catch (err) {
     console.error("TikTok API error:", err);
