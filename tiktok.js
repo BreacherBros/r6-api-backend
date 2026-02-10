@@ -27,7 +27,19 @@ router.get("/tiktok-latest", async (req, res) => {
     }
 
     // Neuestes Video (erstes Element)
-    const video = data[data.length - 1];
+   const getTimestamp = (video) => {
+  if (video.createTimeISO) return new Date(video.createTimeISO).getTime();
+  if (video.createTime) return video.createTime * 1000; // oft Unix seconds
+  if (video.timestamp) return new Date(video.timestamp).getTime();
+  if (video.collectedAt) return new Date(video.collectedAt).getTime();
+  return 0;
+};
+
+const sorted = data
+  .map(v => ({ ...v, _ts: getTimestamp(v) }))
+  .sort((a, b) => b._ts - a._ts);
+
+const video = sorted[0]; // 🔥 wirklich neuestes TikTok
 
     const result = {
       id: video.id || null,
