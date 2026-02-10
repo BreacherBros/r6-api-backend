@@ -27,7 +27,7 @@ router.get("/tiktok-latest", async (req, res) => {
     }
 
     // Neuestes Video (erstes Element)
-    const video = data[0];
+    const video = data[data.length - 1];
 
     const result = {
       id: video.id || null,
