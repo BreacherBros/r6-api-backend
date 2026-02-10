@@ -26,37 +26,32 @@ router.get("/tiktok-latest", async (req, res) => {
       return res.status(404).json({ error: "No TikTok videos found" });
     }
 
-    // 🔥 Neuestes Video laut Dataset (append-only)
+    // ✅ letztes Item = zuletzt gescraped
     const video = data[data.length - 1];
 
+    // ✅ robuste URL-Auswahl mit Fallback
     const videoUrl =
       video.videoUrl ||
       video.videoMeta?.playAddr ||
       video.videoMeta?.downloadAddr ||
+      video.webVideoUrl ||          // 🔥 WICHTIGER FALLBACK
       null;
 
     if (!videoUrl) {
-      return res.status(500).json({
-        error: "No playable video URL found"
+      return res.status(200).json({
+        id: video.id ?? null,
+        caption: video.text ?? "",
+        error: "No video URL available"
       });
     }
 
-    // 🟢 Browser-optimierte Antwort
     res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Content-Type", "application/json");
 
     res.json({
       id: video.id ?? null,
       caption: video.text ?? "",
-      videoUrl,                 // 🔥 direkt abspielbar
+      videoUrl,
       thumbnail: video.videoMeta?.coverUrl ?? null,
-
-      // ⬇️ Hinweise fürs Frontend (ohne Zwang)
-      autoplay: true,
-      muted: true,
-      loop: true,
-      preload: "none",
-
       collectedAt: video.collectedAt ?? null
     });
 
