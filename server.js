@@ -38,7 +38,7 @@ app.get("/", (req, res) => {
 ========================= */
 const TRN_API_KEY = process.env.TRN_API_KEY;
 
-console.log("API KEY:", TRN_API_KEY);
+console.log("TRN KEY:", process.env.TRN_API_KEY);
 
 const BASE_URL = "https://public-api.tracker.gg/v2/r6siege/standard/profile";
  * Example:
