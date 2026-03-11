@@ -40,8 +40,7 @@ const TRN_API_KEY = process.env.TRN_API_KEY;
 
 console.log("TRN KEY:", process.env.TRN_API_KEY);
 
-const BASE_URL = "https://api.tracker.gg/api/v2/r6siege/standard/profile";
-/*
+const BASE_URL = "https://public-api.tracker.gg/v2/r6siege/standard/profile";/*
 Example:
 /player?platform=psn&name=BB_Pater_Odor
 /player?platform=psn&name=SomaRay_Jr
@@ -63,7 +62,17 @@ app.get("/player", async (req, res) => {
       }
     });
 
-    const data = await response.json();
+    const text = await response.text();
+
+let data;
+try {
+  data = JSON.parse(text);
+} catch {
+  return res.status(500).json({
+    error: "Tracker returned HTML instead of JSON",
+    details: text.substring(0,200)
+  });
+}
 
     if (!response.ok) {
       return res.status(500).json({ 
