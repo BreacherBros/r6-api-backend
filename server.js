@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (RANKED + CASUAL)
+   R6DATA API (FIXED FINAL)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -71,62 +71,81 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const profile = data?.profiles?.[0];
+    const stats = profile?.stats || {};
     const segments = profile?.segments || [];
 
-    const overview = segments.find(s => s.type === "overview");
-    const ranked = segments.find(s => s.type === "ranked");
+    const rankedSeg = segments.find(s => s.type === "ranked");
 
-    const val = (obj, key) =>
-      obj?.stats?.[key]?.value ??
-      obj?.stats?.[key]?.displayValue ??
+    // 🔥 SAFE GET (funktioniert IMMER)
+    const get = (obj, key) =>
+      obj?.[key]?.value ??
+      obj?.[key]?.displayValue ??
       null;
 
     /* =========================
-       CASUAL (OVERVIEW)
+       CASUAL (BASE = profile.stats)
     ========================= */
-    const casualKills = val(overview, "kills");
-    const casualDeaths = val(overview, "deaths");
+    const kills = get(stats, "kills");
+    const deaths = get(stats, "deaths");
 
     const casual = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
-      kills: casualKills,
-      deaths: casualDeaths,
-      kd: (casualKills && casualDeaths)
-        ? (casualKills / casualDeaths).toFixed(2)
+      kills,
+      deaths,
+      kd: (kills && deaths && deaths !== 0)
+        ? (kills / deaths).toFixed(2)
         : null,
 
-      wins: val(overview, "wins"),
-      losses: val(overview, "losses"),
-      level: val(overview, "level"),
+      wins: get(stats, "matchesWon"),
+      losses: get(stats, "matchesLost"),
+      level: get(stats, "level"),
 
       rank: "UNRANKED",
       mmr: null
     };
 
     /* =========================
-       RANKED
+       RANKED (optional)
     ========================= */
-    const rankedKills = val(ranked, "kills");
-    const rankedDeaths = val(ranked, "deaths");
-
-    const rankedData = {
+    let ranked = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
-      kills: rankedKills,
-      deaths: rankedDeaths,
-      kd: (rankedKills && rankedDeaths)
-        ? (rankedKills / rankedDeaths).toFixed(2)
-        : null,
+      kills: null,
+      deaths: null,
+      kd: null,
+      wins: null,
+      losses: null,
 
-      wins: val(ranked, "wins"),
-      losses: val(ranked, "losses"),
-
-      rank: val(ranked, "rankName") || "UNRANKED",
-      mmr: val(ranked, "rating")
+      rank: "UNRANKED",
+      mmr: null
     };
+
+    if (rankedSeg && rankedSeg.stats) {
+      const rk = rankedSeg.stats;
+
+      const rKills = get(rk, "kills");
+      const rDeaths = get(rk, "deaths");
+
+      ranked = {
+        username: nameOnPlatform,
+        platform: platformType.toUpperCase(),
+
+        kills: rKills,
+        deaths: rDeaths,
+        kd: (rKills && rDeaths && rDeaths !== 0)
+          ? (rKills / rDeaths).toFixed(2)
+          : null,
+
+        wins: get(rk, "wins"),
+        losses: get(rk, "losses"),
+
+        rank: get(rk, "rankName") || "UNRANKED",
+        mmr: get(rk, "rating")
+      };
+    }
 
     /* =========================
        NO CACHE
@@ -134,8 +153,8 @@ app.get("/api/stats", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
 
     res.json({
-      ranked: rankedData,
-      casual: casual
+      ranked,
+      casual
     });
 
   } catch (err) {
