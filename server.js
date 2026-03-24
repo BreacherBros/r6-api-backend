@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FIXED FINAL)
+   R6DATA API (SEASONAL FIX)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -43,7 +43,7 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Missing parameters" });
     }
 
-    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
+    const url = `https://r6data.eu/api/stats?type=seasonal&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
 
     const response = await fetch(url, {
       headers: {
@@ -51,17 +51,7 @@ app.get("/api/stats", async (req, res) => {
       }
     });
 
-    const text = await response.text();
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return res.status(500).json({
-        error: "Invalid JSON from API",
-        details: text.substring(0, 200)
-      });
-    }
+    const data = await response.json();
 
     if (!response.ok) {
       return res.status(500).json({
@@ -71,22 +61,22 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const profile = data?.profiles?.[0];
-    const stats = profile?.stats || {};
-    const segments = profile?.segments || [];
 
-    const rankedSeg = segments.find(s => s.type === "ranked");
-
-    // 🔥 SAFE GET (funktioniert IMMER)
+    /* =========================
+       HELPER
+    ========================= */
     const get = (obj, key) =>
       obj?.[key]?.value ??
       obj?.[key]?.displayValue ??
       null;
 
     /* =========================
-       CASUAL (BASE = profile.stats)
+       CASUAL (GLOBAL STATS)
     ========================= */
-    const kills = get(stats, "kills");
-    const deaths = get(stats, "deaths");
+    const baseStats = profile?.stats || {};
+
+    const kills = get(baseStats, "kills");
+    const deaths = get(baseStats, "deaths");
 
     const casual = {
       username: nameOnPlatform,
@@ -98,17 +88,22 @@ app.get("/api/stats", async (req, res) => {
         ? (kills / deaths).toFixed(2)
         : null,
 
-      wins: get(stats, "matchesWon"),
-      losses: get(stats, "matchesLost"),
-      level: get(stats, "level"),
+      wins: get(baseStats, "matchesWon"),
+      losses: get(baseStats, "matchesLost"),
+      level: get(baseStats, "level"),
 
       rank: "UNRANKED",
       mmr: null
     };
 
     /* =========================
-       RANKED (optional)
+       RANKED (SEASONAL!)
     ========================= */
+    const seasons = profile?.seasons || [];
+
+    // 👉 aktuelle Season = erste
+    const latest = seasons[0];
+
     let ranked = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
@@ -123,11 +118,11 @@ app.get("/api/stats", async (req, res) => {
       mmr: null
     };
 
-    if (rankedSeg && rankedSeg.stats) {
-      const rk = rankedSeg.stats;
+    if (latest && latest.stats) {
+      const s = latest.stats;
 
-      const rKills = get(rk, "kills");
-      const rDeaths = get(rk, "deaths");
+      const rKills = get(s, "kills");
+      const rDeaths = get(s, "deaths");
 
       ranked = {
         username: nameOnPlatform,
@@ -139,11 +134,11 @@ app.get("/api/stats", async (req, res) => {
           ? (rKills / rDeaths).toFixed(2)
           : null,
 
-        wins: get(rk, "wins"),
-        losses: get(rk, "losses"),
+        wins: get(s, "matchesWon"),
+        losses: get(s, "matchesLost"),
 
-        rank: get(rk, "rankName") || "UNRANKED",
-        mmr: get(rk, "rating")
+        rank: get(s, "rankName") || "UNRANKED",
+        mmr: get(s, "mmr")
       };
     }
 
