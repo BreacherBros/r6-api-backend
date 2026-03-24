@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FIXED)
+   R6DATA API (RANKED + CASUAL)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -47,8 +47,7 @@ app.get("/api/stats", async (req, res) => {
 
     const response = await fetch(url, {
       headers: {
-        "api-key": API_KEY,
-        "Content-Type": "application/json"
+        "api-key": API_KEY
       }
     });
 
@@ -59,7 +58,7 @@ app.get("/api/stats", async (req, res) => {
       data = JSON.parse(text);
     } catch {
       return res.status(500).json({
-        error: "API returned invalid JSON",
+        error: "Invalid JSON from API",
         details: text.substring(0, 200)
       });
     }
@@ -71,45 +70,73 @@ app.get("/api/stats", async (req, res) => {
       });
     }
 
+    const profile = data?.profiles?.[0];
+    const segments = profile?.segments || [];
+
+    const overview = segments.find(s => s.type === "overview");
+    const ranked = segments.find(s => s.type === "ranked");
+
+    const val = (obj, key) =>
+      obj?.stats?.[key]?.value ??
+      obj?.stats?.[key]?.displayValue ??
+      null;
+
     /* =========================
-       OPTIONAL: CLEAN OUTPUT
+       CASUAL (OVERVIEW)
     ========================= */
-const profile = data?.profiles?.[0];
-const stats = profile?.stats || {};
+    const casualKills = val(overview, "kills");
+    const casualDeaths = val(overview, "deaths");
 
-const get = (key) => stats?.[key]?.value ?? null;
+    const casual = {
+      username: nameOnPlatform,
+      platform: platformType.toUpperCase(),
 
-// 👉 Werte holen
-const kills = get("kills");
-const deaths = get("deaths");
+      kills: casualKills,
+      deaths: casualDeaths,
+      kd: (casualKills && casualDeaths)
+        ? (casualKills / casualDeaths).toFixed(2)
+        : null,
 
-// 👉 KD selbst berechnen (WICHTIG)
-const kd = kills && deaths ? (kills / deaths).toFixed(2) : null;
+      wins: val(overview, "wins"),
+      losses: val(overview, "losses"),
+      level: val(overview, "level"),
 
-const result = {
-  username: nameOnPlatform,
-  platform: platformType.toUpperCase(),
+      rank: "UNRANKED",
+      mmr: null
+    };
 
-  kills,
-  deaths,
-  kd,
+    /* =========================
+       RANKED
+    ========================= */
+    const rankedKills = val(ranked, "kills");
+    const rankedDeaths = val(ranked, "deaths");
 
-  wins: get("matchesWon"),
-  losses: get("matchesLost"),
-  level: get("level"),
+    const rankedData = {
+      username: nameOnPlatform,
+      platform: platformType.toUpperCase(),
 
-  rank: get("rank") || "UNRANKED",
-  mmr: get("mmr"),
-  maxRank: get("maxRank"),
-  maxMmr: get("maxMmr")
-};
+      kills: rankedKills,
+      deaths: rankedDeaths,
+      kd: (rankedKills && rankedDeaths)
+        ? (rankedKills / rankedDeaths).toFixed(2)
+        : null,
+
+      wins: val(ranked, "wins"),
+      losses: val(ranked, "losses"),
+
+      rank: val(ranked, "rankName") || "UNRANKED",
+      mmr: val(ranked, "rating")
+    };
 
     /* =========================
        NO CACHE
     ========================= */
     res.setHeader("Cache-Control", "no-store");
 
-    res.json(result);
+    res.json({
+      ranked: rankedData,
+      casual: casual
+    });
 
   } catch (err) {
     console.error("Backend Fehler:", err);
