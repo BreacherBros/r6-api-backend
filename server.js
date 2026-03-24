@@ -7,12 +7,12 @@ import tiktokRoutes from "./tiktok.js";
 const app = express();
 
 /* =========================
-   GLOBAL CORS (FULL OPEN)
+   GLOBAL CORS
 ========================= */
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization", "TRN-Api-Key"]
+  allowedHeaders: ["Content-Type"]
 }));
 
 app.use(express.json());
@@ -31,94 +31,86 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6 TRACKER API
+   R6DATA API (FIXED)
 ========================= */
-/* =========================
-   R6 TRACKER API
-========================= */
-const TRN_API_KEY = process.env.TRN_API_KEY;
+const API_KEY = process.env.API_KEY;
 
-console.log("TRN KEY:", process.env.TRN_API_KEY);
-
-const BASE_URL = "https://public-api.tracker.gg/v2/r6siege/standard/profile";/*
-Example:
-/player?platform=psn&name=BB_Pater_Odor
-/player?platform=psn&name=SomaRay_Jr
-*/
-app.get("/player", async (req, res) => {
+app.get("/api/stats", async (req, res) => {
   try {
-    const { platform, name } = req.query;
+    const { nameOnPlatform, platformType } = req.query;
 
-    if (!platform || !name) {
-      return res.status(400).json({ error: "Missing platform or name" });
+    if (!nameOnPlatform || !platformType) {
+      return res.status(400).json({ error: "Missing parameters" });
     }
 
-    const url = `${BASE_URL}/${platform}/${encodeURIComponent(name)}`;
+    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
 
     const response = await fetch(url, {
       headers: {
-        "TRN-Api-Key": TRN_API_KEY,
-        "accept": "application/json"
+        "api-key": API_KEY,
+        "Content-Type": "application/json"
       }
     });
 
     const text = await response.text();
 
-let data;
-try {
-  data = JSON.parse(text);
-} catch {
-  return res.status(500).json({
-    error: "Tracker returned HTML instead of JSON",
-    details: text.substring(0,200)
-  });
-}
-
-    if (!response.ok) {
-      return res.status(500).json({ 
-        error: "Tracker API error", 
-        details: data 
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return res.status(500).json({
+        error: "API returned invalid JSON",
+        details: text.substring(0, 200)
       });
     }
 
-    /* --------- Mapping --------- */
-    const segments = data.data.segments;
+    if (!response.ok) {
+      return res.status(500).json({
+        error: "R6Data API error",
+        details: data
+      });
+    }
 
-    const overview = segments.find(s => s.type === "overview");
-    const ranked = segments.find(s => s.type === "ranked");
+    /* =========================
+       OPTIONAL: CLEAN OUTPUT
+    ========================= */
+    const profile = data?.profiles?.[0];
+    const stats = profile?.stats || {};
 
-    const val = (obj, key) =>
-      obj?.stats?.[key]?.displayValue ||
-      obj?.stats?.[key]?.value ||
-      0;
+    const val = (key) =>
+      stats?.[key]?.value ?? stats?.[key]?.displayValue ?? null;
 
     const result = {
-      username: data.data.platformInfo.platformUserHandle,
-      level: val(overview, "level"),
-      kd: val(overview, "kd"),
-      wins: val(overview, "wins"),
-      losses: val(overview, "losses"),
-      kills: val(overview, "kills"),
-      deaths: val(overview, "deaths"),
-      headshots: val(overview, "headshots"),
-      rank: val(ranked, "rankName"),
-      mmr: val(ranked, "rating")
+      username: nameOnPlatform,
+      platform: platformType.toUpperCase(),
+
+      kills: val("kills"),
+      deaths: val("deaths"),
+      kd: val("kd"),
+
+      wins: val("matchesWon"),
+      losses: val("matchesLost"),
+      level: val("level"),
+
+      rank: val("rank"),
+      mmr: val("mmr"),
+      maxRank: val("maxRank"),
+      maxMmr: val("maxMmr")
     };
 
     /* =========================
-       CACHE DISABLE (LIVE DATA)
+       NO CACHE
     ========================= */
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
-    res.setHeader("Surrogate-Control", "no-store");
+    res.setHeader("Cache-Control", "no-store");
 
     res.json(result);
 
   } catch (err) {
-    res.status(500).json({ 
-      error: "Server error", 
-      details: err.message 
+    console.error("Backend Fehler:", err);
+
+    res.status(500).json({
+      error: "Server error",
+      details: err.message
     });
   }
 });
