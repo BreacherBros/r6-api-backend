@@ -51,7 +51,21 @@ app.get("/api/stats", async (req, res) => {
       }
     });
 
-    const data = await response.json();
+  const text = await response.text();
+
+let data;
+try {
+  data = JSON.parse(text);
+} catch (e) {
+  console.error("❌ API gibt HTML zurück:");
+  console.log(text);
+
+  return res.status(500).json({
+    error: "API returned invalid JSON",
+    raw: text.substring(0, 200)
+  });
+}
+     console.log("R6DATA RESPONSE:", JSON.stringify(data, null, 2));
 
     if (!response.ok) {
       return res.status(500).json({
