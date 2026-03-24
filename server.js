@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (STABLE FINAL)
+   R6DATA API (FIXED FINAL)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -45,12 +45,12 @@ app.get("/api/stats", async (req, res) => {
 
     if (!API_KEY) {
       return res.status(500).json({
-        error: "API KEY missing in environment"
+        error: "API KEY missing"
       });
     }
 
+    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
 
-const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
     const response = await fetch(url, {
       headers: {
         "api-key": API_KEY
@@ -62,50 +62,36 @@ const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURICo
     let data;
     try {
       data = JSON.parse(text);
-    } catch (e) {
-      console.error("❌ API gibt kein JSON zurück:");
-      console.log(text);
-
+    } catch {
       return res.status(500).json({
-        error: "Invalid JSON from API",
+        error: "Invalid JSON",
         preview: text.substring(0, 200)
       });
     }
 
     if (!response.ok) {
-      console.error("❌ API Fehler:", data);
-
       return res.status(500).json({
-        error: "R6Data API error",
+        error: "API error",
         details: data
       });
     }
 
-    console.log("✅ API OK");
-
     const profile = data?.profiles?.[0];
+    const segments = profile?.segments || [];
 
-    if (!profile) {
-      return res.status(404).json({
-        error: "Player not found"
-      });
-    }
+    const overview = segments.find(s => s.type === "overview");
+    const rankedSeg = segments.find(s => s.type === "ranked");
 
-    /* =========================
-       HELPER
-    ========================= */
-    const get = (obj, key) =>
-      obj?.[key]?.value ??
-      obj?.[key]?.displayValue ??
+    const val = (obj, key) =>
+      obj?.stats?.[key]?.value ??
+      obj?.stats?.[key]?.displayValue ??
       null;
 
     /* =========================
-       CASUAL (GLOBAL STATS)
+       CASUAL (overview)
     ========================= */
-    const baseStats = profile?.stats || {};
-
-    const kills = get(baseStats, "kills");
-    const deaths = get(baseStats, "deaths");
+    const kills = val(overview, "kills");
+    const deaths = val(overview, "deaths");
 
     const casual = {
       username: nameOnPlatform,
@@ -117,61 +103,37 @@ const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURICo
         ? (kills / deaths).toFixed(2)
         : null,
 
-      wins: get(baseStats, "matchesWon"),
-      losses: get(baseStats, "matchesLost"),
-      level: get(baseStats, "level"),
+      wins: val(overview, "wins"),
+      losses: val(overview, "losses"),
+      level: val(overview, "level"),
 
       rank: "UNRANKED",
       mmr: null
     };
 
     /* =========================
-       RANKED (SEASONAL)
+       RANKED
     ========================= */
-    const seasons = profile?.seasons || [];
-    const latest = seasons[0];
+    const rKills = val(rankedSeg, "kills");
+    const rDeaths = val(rankedSeg, "deaths");
 
-    let ranked = {
+    const ranked = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
-      kills: null,
-      deaths: null,
-      kd: null,
-      wins: null,
-      losses: null,
+      kills: rKills,
+      deaths: rDeaths,
+      kd: (rKills && rDeaths && rDeaths !== 0)
+        ? (rKills / rDeaths).toFixed(2)
+        : null,
 
-      rank: "UNRANKED",
-      mmr: null
+      wins: val(rankedSeg, "wins"),
+      losses: val(rankedSeg, "losses"),
+
+      rank: val(rankedSeg, "rankName") || "UNRANKED",
+      mmr: val(rankedSeg, "rating")
     };
 
-    if (latest && latest.stats) {
-      const s = latest.stats;
-
-      const rKills = get(s, "kills");
-      const rDeaths = get(s, "deaths");
-
-      ranked = {
-        username: nameOnPlatform,
-        platform: platformType.toUpperCase(),
-
-        kills: rKills,
-        deaths: rDeaths,
-        kd: (rKills && rDeaths && rDeaths !== 0)
-          ? (rKills / rDeaths).toFixed(2)
-          : null,
-
-        wins: get(s, "matchesWon"),
-        losses: get(s, "matchesLost"),
-
-        rank: get(s, "rankName") || "UNRANKED",
-        mmr: get(s, "mmr")
-      };
-    }
-
-    /* =========================
-       NO CACHE
-    ========================= */
     res.setHeader("Cache-Control", "no-store");
 
     res.json({
@@ -180,7 +142,7 @@ const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURICo
     });
 
   } catch (err) {
-    console.error("❌ Backend Fehler:", err);
+    console.error("Backend Fehler:", err);
 
     res.status(500).json({
       error: "Server error",
