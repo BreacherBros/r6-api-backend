@@ -49,8 +49,8 @@ app.get("/api/stats", async (req, res) => {
       });
     }
 
-    const url = `https://r6data.eu/api/stats?type=seasonal&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
 
+const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
     const response = await fetch(url, {
       headers: {
         "api-key": API_KEY
