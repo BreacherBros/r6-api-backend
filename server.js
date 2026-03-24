@@ -74,29 +74,35 @@ app.get("/api/stats", async (req, res) => {
     /* =========================
        OPTIONAL: CLEAN OUTPUT
     ========================= */
-    const profile = data?.profiles?.[0];
-    const stats = profile?.stats || {};
+const profile = data?.profiles?.[0];
+const stats = profile?.stats || {};
 
-    const val = (key) =>
-      stats?.[key]?.value ?? stats?.[key]?.displayValue ?? null;
+const get = (key) => stats?.[key]?.value ?? null;
 
-    const result = {
-      username: nameOnPlatform,
-      platform: platformType.toUpperCase(),
+// 👉 Werte holen
+const kills = get("kills");
+const deaths = get("deaths");
 
-      kills: val("kills"),
-      deaths: val("deaths"),
-      kd: val("kd"),
+// 👉 KD selbst berechnen (WICHTIG)
+const kd = kills && deaths ? (kills / deaths).toFixed(2) : null;
 
-      wins: val("matchesWon"),
-      losses: val("matchesLost"),
-      level: val("level"),
+const result = {
+  username: nameOnPlatform,
+  platform: platformType.toUpperCase(),
 
-      rank: val("rank"),
-      mmr: val("mmr"),
-      maxRank: val("maxRank"),
-      maxMmr: val("maxMmr")
-    };
+  kills,
+  deaths,
+  kd,
+
+  wins: get("matchesWon"),
+  losses: get("matchesLost"),
+  level: get("level"),
+
+  rank: get("rank") || "UNRANKED",
+  mmr: get("mmr"),
+  maxRank: get("maxRank"),
+  maxMmr: get("maxMmr")
+};
 
     /* =========================
        NO CACHE
