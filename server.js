@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (SEASONAL FIX)
+   R6DATA API (STABLE FINAL)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -43,6 +43,12 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Missing parameters" });
     }
 
+    if (!API_KEY) {
+      return res.status(500).json({
+        error: "API KEY missing in environment"
+      });
+    }
+
     const url = `https://r6data.eu/api/stats?type=seasonal&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
 
     const response = await fetch(url, {
@@ -51,30 +57,39 @@ app.get("/api/stats", async (req, res) => {
       }
     });
 
-  const text = await response.text();
+    const text = await response.text();
 
-let data;
-try {
-  data = JSON.parse(text);
-} catch (e) {
-  console.error("❌ API gibt HTML zurück:");
-  console.log(text);
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error("❌ API gibt kein JSON zurück:");
+      console.log(text);
 
-  return res.status(500).json({
-    error: "API returned invalid JSON",
-    raw: text.substring(0, 200)
-  });
-}
-     console.log("R6DATA RESPONSE:", JSON.stringify(data, null, 2));
+      return res.status(500).json({
+        error: "Invalid JSON from API",
+        preview: text.substring(0, 200)
+      });
+    }
 
     if (!response.ok) {
+      console.error("❌ API Fehler:", data);
+
       return res.status(500).json({
         error: "R6Data API error",
         details: data
       });
     }
 
+    console.log("✅ API OK");
+
     const profile = data?.profiles?.[0];
+
+    if (!profile) {
+      return res.status(404).json({
+        error: "Player not found"
+      });
+    }
 
     /* =========================
        HELPER
@@ -111,11 +126,9 @@ try {
     };
 
     /* =========================
-       RANKED (SEASONAL!)
+       RANKED (SEASONAL)
     ========================= */
     const seasons = profile?.seasons || [];
-
-    // 👉 aktuelle Season = erste
     const latest = seasons[0];
 
     let ranked = {
@@ -167,7 +180,7 @@ try {
     });
 
   } catch (err) {
-    console.error("Backend Fehler:", err);
+    console.error("❌ Backend Fehler:", err);
 
     res.status(500).json({
       error: "Server error",
