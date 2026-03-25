@@ -64,8 +64,12 @@ app.get("/api/stats", async (req, res) => {
       });
     }
 
-    const profile = data?.profiles?.[0];
-    const segments = profile?.segments || [];
+const profile = data?.profiles?.[0];
+
+console.log("======== R6DATA RESPONSE ========");
+console.log(JSON.stringify(data, null, 2));
+console.log("=================================");
+     const segments = profile?.segments || [];
 
     const overview = segments.find(s => s.type === "overview");
     const rankedSeg = segments.find(s => s.type === "ranked");
