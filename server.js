@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FINAL WORKING 🔥)
+   R6DATA API (FINAL FIXED 🔥)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -41,6 +41,10 @@ app.get("/api/stats", async (req, res) => {
 
     if (!nameOnPlatform || !platformType) {
       return res.status(400).json({ error: "Missing parameters" });
+    }
+
+    if (!API_KEY) {
+      return res.status(500).json({ error: "API KEY missing" });
     }
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
@@ -54,11 +58,16 @@ app.get("/api/stats", async (req, res) => {
     const data = await response.json();
 
     const profile = data?.profiles?.[0];
+
+    if (!profile) {
+      return res.status(404).json({ error: "Player not found" });
+    }
+
     const username =
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 BOARD DATA (DAS WICHTIGE)
+       🔥 BOARD DATA (PRIMARY)
     ========================= */
     const root = data?.platform_families_full_profiles?.[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -70,50 +79,70 @@ app.get("/api/stats", async (req, res) => {
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile;
 
     /* =========================
+       🔥 FALLBACK (IMMER DA)
+    ========================= */
+    const stats = profile?.stats || {};
+
+    const get = (key) => stats?.[key]?.value ?? null;
+
+    /* =========================
        HELPER
     ========================= */
     const calcKD = (k, d) =>
       (k && d && d !== 0) ? (k / d).toFixed(2) : null;
 
     /* =========================
-       RESPONSE (FRONTEND READY)
+       CASUAL
     ========================= */
-    const result = {
-      ranked: {
-        username,
-        platform: platformType.toUpperCase(),
+    const casualKills = casualProfile?.kills ?? get("kills");
+    const casualDeaths = casualProfile?.deaths ?? get("deaths");
 
-        kills: rankedProfile?.kills ?? null,
-        deaths: rankedProfile?.deaths ?? null,
-        kd: calcKD(rankedProfile?.kills, rankedProfile?.deaths),
+    const casual = {
+      username,
+      platform: platformType.toUpperCase(),
 
-        wins: rankedProfile?.wins ?? null,
-        losses: rankedProfile?.losses ?? null,
+      kills: casualKills,
+      deaths: casualDeaths,
+      kd: calcKD(casualKills, casualDeaths),
 
-        rank: rankedProfile?.rank ?? "UNRANKED",
-        mmr: rankedProfile?.rank_points ?? null
-      },
+      wins: casualProfile?.wins ?? get("matchesWon"),
+      losses: casualProfile?.losses ?? get("matchesLost"),
+      level: get("level"),
 
-      casual: {
-        username,
-        platform: platformType.toUpperCase(),
-
-        kills: casualProfile?.kills ?? null,
-        deaths: casualProfile?.deaths ?? null,
-        kd: calcKD(casualProfile?.kills, casualProfile?.deaths),
-
-        wins: casualProfile?.wins ?? null,
-        losses: casualProfile?.losses ?? null,
-
-        level: null,
-
-        rank: "UNRANKED",
-        mmr: null
-      }
+      rank: "UNRANKED",
+      mmr: null
     };
 
+    /* =========================
+       RANKED
+    ========================= */
+    const rankedKills = rankedProfile?.kills ?? null;
+    const rankedDeaths = rankedProfile?.deaths ?? null;
+
+    const ranked = {
+      username,
+      platform: platformType.toUpperCase(),
+
+      kills: rankedKills,
+      deaths: rankedDeaths,
+      kd: calcKD(rankedKills, rankedDeaths),
+
+      wins: rankedProfile?.wins ?? null,
+      losses: rankedProfile?.losses ?? null,
+
+      rank: rankedProfile?.rank ?? "UNRANKED",
+      mmr: rankedProfile?.rank_points ?? null
+    };
+
+    /* =========================
+       RESPONSE
+    ========================= */
     res.setHeader("Cache-Control", "no-store");
-    res.json(result);
+
+    res.json({
+      ranked,
+      casual
+    });
 
   } catch (err) {
     console.error("❌ Backend Fehler:", err);
