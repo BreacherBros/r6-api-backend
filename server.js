@@ -44,9 +44,7 @@ app.get("/api/stats", async (req, res) => {
     }
 
     if (!API_KEY) {
-      return res.status(500).json({
-        error: "API KEY missing"
-      });
+      return res.status(500).json({ error: "API KEY missing" });
     }
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
@@ -82,7 +80,8 @@ app.get("/api/stats", async (req, res) => {
     const overview = segments.find(s => s.type === "overview");
     const rankedSeg = segments.find(s => s.type === "ranked");
 
-    const val = (obj, key) =>
+    // 🔥 KORRIGIERTER HELPER
+    const get = (obj, key) =>
       obj?.stats?.[key]?.value ??
       obj?.stats?.[key]?.displayValue ??
       null;
@@ -90,8 +89,8 @@ app.get("/api/stats", async (req, res) => {
     /* =========================
        CASUAL (overview)
     ========================= */
-    const kills = val(overview, "kills");
-    const deaths = val(overview, "deaths");
+    const kills = get(overview, "kills");
+    const deaths = get(overview, "deaths");
 
     const casual = {
       username: nameOnPlatform,
@@ -99,13 +98,13 @@ app.get("/api/stats", async (req, res) => {
 
       kills,
       deaths,
-      kd: (kills && deaths && deaths !== 0)
-        ? (kills / deaths).toFixed(2)
-        : null,
 
-      wins: val(overview, "wins"),
-      losses: val(overview, "losses"),
-      level: val(overview, "level"),
+      // 🔥 FIX
+      kd: get(overview, "kdRatio"),
+
+      wins: get(overview, "matchesWon"),
+      losses: get(overview, "matchesLost"),
+      level: get(overview, "level"),
 
       rank: "UNRANKED",
       mmr: null
@@ -114,8 +113,8 @@ app.get("/api/stats", async (req, res) => {
     /* =========================
        RANKED
     ========================= */
-    const rKills = val(rankedSeg, "kills");
-    const rDeaths = val(rankedSeg, "deaths");
+    const rKills = get(rankedSeg, "kills");
+    const rDeaths = get(rankedSeg, "deaths");
 
     const ranked = {
       username: nameOnPlatform,
@@ -123,15 +122,15 @@ app.get("/api/stats", async (req, res) => {
 
       kills: rKills,
       deaths: rDeaths,
-      kd: (rKills && rDeaths && rDeaths !== 0)
-        ? (rKills / rDeaths).toFixed(2)
-        : null,
 
-      wins: val(rankedSeg, "wins"),
-      losses: val(rankedSeg, "losses"),
+      // 🔥 FIX
+      kd: get(rankedSeg, "kdRatio"),
 
-      rank: val(rankedSeg, "rankName") || "UNRANKED",
-      mmr: val(rankedSeg, "rating")
+      wins: get(rankedSeg, "matchesWon"),
+      losses: get(rankedSeg, "matchesLost"),
+
+      rank: get(rankedSeg, "rankName") || "UNRANKED",
+      mmr: get(rankedSeg, "rating")
     };
 
     res.setHeader("Cache-Control", "no-store");
