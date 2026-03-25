@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (ROBUST FINAL)
+   R6DATA API (FINAL STABLE)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -55,17 +55,7 @@ app.get("/api/stats", async (req, res) => {
       }
     });
 
-    const text = await response.text();
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return res.status(500).json({
-        error: "Invalid JSON",
-        preview: text.substring(0, 200)
-      });
-    }
+    const data = await response.json();
 
     if (!response.ok) {
       return res.status(500).json({
@@ -80,35 +70,26 @@ app.get("/api/stats", async (req, res) => {
     const overview = segments.find(s => s.type === "overview");
     const rankedSeg = segments.find(s => s.type === "ranked");
 
-    // 🔥 ULTRA ROBUSTER HELPER (fallback keys!)
-    const getStat = (obj, keys) => {
-      for (const key of keys) {
-        const val =
-          obj?.stats?.[key]?.value ??
-          obj?.stats?.[key]?.displayValue;
-        if (val !== undefined && val !== null) return val;
-      }
-      return null;
-    };
+    // 🔥 SIMPLE HELPER (WIE ES SEIN SOLL)
+    const val = (obj, key) =>
+      obj?.stats?.[key]?.value ??
+      obj?.stats?.[key]?.displayValue ??
+      null;
 
     /* =========================
        CASUAL (overview)
     ========================= */
-    const kills = getStat(overview, ["kills", "pvp_kills"]);
-    const deaths = getStat(overview, ["deaths", "pvp_deaths"]);
-
     const casual = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
-      kills,
-      deaths,
+      kills: val(overview, "kills"),
+      deaths: val(overview, "deaths"),
+      kd: val(overview, "kd"),
 
-      kd: getStat(overview, ["kdRatio", "pvp_kd"]),
-
-      wins: getStat(overview, ["matchesWon", "pvp_matcheswon"]),
-      losses: getStat(overview, ["matchesLost", "pvp_matcheslost"]),
-      level: getStat(overview, ["level"]),
+      wins: val(overview, "wins"),
+      losses: val(overview, "losses"),
+      level: val(overview, "level"),
 
       rank: "UNRANKED",
       mmr: null
@@ -117,23 +98,19 @@ app.get("/api/stats", async (req, res) => {
     /* =========================
        RANKED
     ========================= */
-    const rKills = getStat(rankedSeg, ["kills", "pvp_kills"]);
-    const rDeaths = getStat(rankedSeg, ["deaths", "pvp_deaths"]);
-
     const ranked = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
-      kills: rKills,
-      deaths: rDeaths,
+      kills: val(rankedSeg, "kills"),
+      deaths: val(rankedSeg, "deaths"),
+      kd: val(rankedSeg, "kd"),
 
-      kd: getStat(rankedSeg, ["kdRatio", "pvp_kd"]),
+      wins: val(rankedSeg, "wins"),
+      losses: val(rankedSeg, "losses"),
 
-      wins: getStat(rankedSeg, ["matchesWon", "pvp_matcheswon"]),
-      losses: getStat(rankedSeg, ["matchesLost", "pvp_matcheslost"]),
-
-      rank: getStat(rankedSeg, ["rankName"]) || "UNRANKED",
-      mmr: getStat(rankedSeg, ["rating"])
+      rank: val(rankedSeg, "rankName") || "UNRANKED",
+      mmr: val(rankedSeg, "rating")
     };
 
     res.setHeader("Cache-Control", "no-store");
