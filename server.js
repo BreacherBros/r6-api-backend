@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FINAL STABLE)
+   R6DATA API (WORKING VERSION)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -41,10 +41,6 @@ app.get("/api/stats", async (req, res) => {
 
     if (!nameOnPlatform || !platformType) {
       return res.status(400).json({ error: "Missing parameters" });
-    }
-
-    if (!API_KEY) {
-      return res.status(500).json({ error: "API KEY missing" });
     }
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
@@ -57,36 +53,21 @@ app.get("/api/stats", async (req, res) => {
 
     const data = await response.json();
 
-    if (!response.ok) {
-      return res.status(500).json({
-        error: "API error",
-        details: data
-      });
-    }
-
-const profile = data?.profiles?.[0];
-
-console.log("======== R6DATA RESPONSE ========");
-console.log(JSON.stringify(data, null, 2));
-console.log("=================================");
-     const segments = profile?.segments || [];
+    const segments = data?.profiles?.[0]?.segments || [];
 
     const overview = segments.find(s => s.type === "overview");
-    const rankedSeg = segments.find(s => s.type === "ranked");
+    const ranked = segments.find(s => s.type === "ranked");
 
-    // 🔥 SIMPLE HELPER (WIE ES SEIN SOLL)
     const val = (obj, key) =>
-      obj?.stats?.[key]?.value ??
       obj?.stats?.[key]?.displayValue ??
-      null;
+      obj?.stats?.[key]?.value ??
+      0;
 
-    /* =========================
-       CASUAL (overview)
-    ========================= */
-    const casual = {
-      username: nameOnPlatform,
+    const result = {
+      username: data?.profiles?.[0]?.platformInfo?.platformUserHandle,
       platform: platformType.toUpperCase(),
 
+      // 🔥 OVERVIEW
       kills: val(overview, "kills"),
       deaths: val(overview, "deaths"),
       kd: val(overview, "kd"),
@@ -95,41 +76,20 @@ console.log("=================================");
       losses: val(overview, "losses"),
       level: val(overview, "level"),
 
-      rank: "UNRANKED",
-      mmr: null
-    };
-
-    /* =========================
-       RANKED
-    ========================= */
-    const ranked = {
-      username: nameOnPlatform,
-      platform: platformType.toUpperCase(),
-
-      kills: val(rankedSeg, "kills"),
-      deaths: val(rankedSeg, "deaths"),
-      kd: val(rankedSeg, "kd"),
-
-      wins: val(rankedSeg, "wins"),
-      losses: val(rankedSeg, "losses"),
-
-      rank: val(rankedSeg, "rankName") || "UNRANKED",
-      mmr: val(rankedSeg, "rating")
+      // 🔥 RANKED
+      rank: val(ranked, "rankName") || "UNRANKED",
+      mmr: val(ranked, "rating")
     };
 
     res.setHeader("Cache-Control", "no-store");
 
-    res.json({
-      ranked,
-      casual
-    });
+    res.json(result);
 
   } catch (err) {
     console.error("Backend Fehler:", err);
 
     res.status(500).json({
-      error: "Server error",
-      details: err.message
+      error: "Server error"
     });
   }
 });
