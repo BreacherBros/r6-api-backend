@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FINAL 🔥 STABLE)
+   R6DATA API (FINAL CORRECT 🔥)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -47,7 +47,8 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
-    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
+    // ✅ WICHTIG: SEASONAL
+    const url = `https://r6data.eu/api/stats?type=seasonal&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
 
     const response = await fetch(url, {
       headers: {
@@ -74,48 +75,30 @@ app.get("/api/stats", async (req, res) => {
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 BOARD DATA
+       🔥 SEASONAL (RICHTIG)
     ========================= */
-    const root = data?.platform_families_full_profiles?.[0];
-    const boards = root?.board_ids_full_profiles || [];
-
-    const rankedBoard = boards.find(b => b.board_id === "pvp_ranked");
-    const casualBoard = boards.find(b => b.board_id === "pvp_casual");
-
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
+    const seasons = profile?.seasons || [];
+    const latest = seasons[0];
+    const stats = latest?.stats || {};
 
     /* =========================
-       🔥 FALLBACK STATS
+       GLOBAL (CASUAL)
     ========================= */
-    const stats = profile?.stats || {};
+    const baseStats = profile?.stats || {};
 
-    const get = (key) => stats?.[key]?.value ?? null;
+    const get = (obj, key) =>
+      obj?.[key]?.value ?? null;
 
-    /* =========================
-       HELPERS
-    ========================= */
     const calcKD = (k, d) => {
-      if (k === null || d === null) return null;
-      if (d === 0) return null;
+      if (k == null || d == null || d === 0) return null;
       return (k / d).toFixed(2);
     };
 
-    const getRankName = (rank) => {
-      if (!rank) return "UNRANKED";
-      if (rank >= 25) return "CHAMPION";
-      if (rank >= 20) return "DIAMOND";
-      if (rank >= 15) return "EMERALD";
-      if (rank >= 10) return "PLATINUM";
-      if (rank >= 5) return "GOLD";
-      return "SILVER";
-    };
-
     /* =========================
-       CASUAL DATA
+       CASUAL
     ========================= */
-    const casualKills = casualProfile?.kills ?? get("kills");
-    const casualDeaths = casualProfile?.deaths ?? get("deaths");
+    const casualKills = get(baseStats, "kills");
+    const casualDeaths = get(baseStats, "deaths");
 
     const casual = {
       username,
@@ -125,19 +108,19 @@ app.get("/api/stats", async (req, res) => {
       deaths: casualDeaths,
       kd: calcKD(casualKills, casualDeaths),
 
-      wins: casualProfile?.wins ?? get("matchesWon"),
-      losses: casualProfile?.losses ?? get("matchesLost"),
-      level: get("level"),
+      wins: get(baseStats, "matchesWon"),
+      losses: get(baseStats, "matchesLost"),
+      level: get(baseStats, "level"),
 
       rank: "UNRANKED",
       mmr: null
     };
 
     /* =========================
-       RANKED DATA
+       RANKED (ECHT)
     ========================= */
-    const rankedKills = rankedProfile?.kills ?? null;
-    const rankedDeaths = rankedProfile?.deaths ?? null;
+    const rankedKills = get(stats, "kills");
+    const rankedDeaths = get(stats, "deaths");
 
     const ranked = {
       username,
@@ -145,13 +128,16 @@ app.get("/api/stats", async (req, res) => {
 
       kills: rankedKills,
       deaths: rankedDeaths,
-      kd: calcKD(rankedKills, rankedDeaths),
+      kd: get(stats, "kdRatio") ?? calcKD(rankedKills, rankedDeaths),
 
-      wins: rankedProfile?.wins ?? null,
-      losses: rankedProfile?.losses ?? null,
+      wins: get(stats, "matchesWon"),
+      losses: get(stats, "matchesLost"),
 
-      rank: getRankName(rankedProfile?.rank),
-      mmr: rankedProfile?.rank_points ?? 0
+      // 🔥 DAS IST DER ECHTE RANK WERT
+      mmr: get(stats, "elo"),
+
+      // optional (nur Zahl)
+      rank: get(stats, "rank") ?? "UNRANKED"
     };
 
     /* =========================
