@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FIXED FINAL)
+   R6DATA API (ROBUST FINAL)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -80,17 +80,22 @@ app.get("/api/stats", async (req, res) => {
     const overview = segments.find(s => s.type === "overview");
     const rankedSeg = segments.find(s => s.type === "ranked");
 
-    // 🔥 KORRIGIERTER HELPER
-    const get = (obj, key) =>
-      obj?.stats?.[key]?.value ??
-      obj?.stats?.[key]?.displayValue ??
-      null;
+    // 🔥 ULTRA ROBUSTER HELPER (fallback keys!)
+    const getStat = (obj, keys) => {
+      for (const key of keys) {
+        const val =
+          obj?.stats?.[key]?.value ??
+          obj?.stats?.[key]?.displayValue;
+        if (val !== undefined && val !== null) return val;
+      }
+      return null;
+    };
 
     /* =========================
        CASUAL (overview)
     ========================= */
-    const kills = get(overview, "kills");
-    const deaths = get(overview, "deaths");
+    const kills = getStat(overview, ["kills", "pvp_kills"]);
+    const deaths = getStat(overview, ["deaths", "pvp_deaths"]);
 
     const casual = {
       username: nameOnPlatform,
@@ -99,12 +104,11 @@ app.get("/api/stats", async (req, res) => {
       kills,
       deaths,
 
-      // 🔥 FIX
-      kd: get(overview, "kdRatio"),
+      kd: getStat(overview, ["kdRatio", "pvp_kd"]),
 
-      wins: get(overview, "matchesWon"),
-      losses: get(overview, "matchesLost"),
-      level: get(overview, "level"),
+      wins: getStat(overview, ["matchesWon", "pvp_matcheswon"]),
+      losses: getStat(overview, ["matchesLost", "pvp_matcheslost"]),
+      level: getStat(overview, ["level"]),
 
       rank: "UNRANKED",
       mmr: null
@@ -113,8 +117,8 @@ app.get("/api/stats", async (req, res) => {
     /* =========================
        RANKED
     ========================= */
-    const rKills = get(rankedSeg, "kills");
-    const rDeaths = get(rankedSeg, "deaths");
+    const rKills = getStat(rankedSeg, ["kills", "pvp_kills"]);
+    const rDeaths = getStat(rankedSeg, ["deaths", "pvp_deaths"]);
 
     const ranked = {
       username: nameOnPlatform,
@@ -123,14 +127,13 @@ app.get("/api/stats", async (req, res) => {
       kills: rKills,
       deaths: rDeaths,
 
-      // 🔥 FIX
-      kd: get(rankedSeg, "kdRatio"),
+      kd: getStat(rankedSeg, ["kdRatio", "pvp_kd"]),
 
-      wins: get(rankedSeg, "matchesWon"),
-      losses: get(rankedSeg, "matchesLost"),
+      wins: getStat(rankedSeg, ["matchesWon", "pvp_matcheswon"]),
+      losses: getStat(rankedSeg, ["matchesLost", "pvp_matcheslost"]),
 
-      rank: get(rankedSeg, "rankName") || "UNRANKED",
-      mmr: get(rankedSeg, "rating")
+      rank: getStat(rankedSeg, ["rankName"]) || "UNRANKED",
+      mmr: getStat(rankedSeg, ["rating"])
     };
 
     res.setHeader("Cache-Control", "no-store");
