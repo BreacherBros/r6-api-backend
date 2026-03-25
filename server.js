@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FINAL FIXED 🔥)
+   R6DATA API (FINAL 🔥 STABLE)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -57,6 +57,13 @@ app.get("/api/stats", async (req, res) => {
 
     const data = await response.json();
 
+    if (!response.ok) {
+      return res.status(500).json({
+        error: "R6Data API error",
+        details: data
+      });
+    }
+
     const profile = data?.profiles?.[0];
 
     if (!profile) {
@@ -67,7 +74,7 @@ app.get("/api/stats", async (req, res) => {
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 BOARD DATA (PRIMARY)
+       🔥 BOARD DATA
     ========================= */
     const root = data?.platform_families_full_profiles?.[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -75,24 +82,37 @@ app.get("/api/stats", async (req, res) => {
     const rankedBoard = boards.find(b => b.board_id === "pvp_ranked");
     const casualBoard = boards.find(b => b.board_id === "pvp_casual");
 
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile;
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile;
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
 
     /* =========================
-       🔥 FALLBACK (IMMER DA)
+       🔥 FALLBACK STATS
     ========================= */
     const stats = profile?.stats || {};
 
     const get = (key) => stats?.[key]?.value ?? null;
 
     /* =========================
-       HELPER
+       HELPERS
     ========================= */
-    const calcKD = (k, d) =>
-      (k && d && d !== 0) ? (k / d).toFixed(2) : null;
+    const calcKD = (k, d) => {
+      if (k === null || d === null) return null;
+      if (d === 0) return null;
+      return (k / d).toFixed(2);
+    };
+
+    const getRankName = (rank) => {
+      if (!rank) return "UNRANKED";
+      if (rank >= 25) return "CHAMPION";
+      if (rank >= 20) return "DIAMOND";
+      if (rank >= 15) return "EMERALD";
+      if (rank >= 10) return "PLATINUM";
+      if (rank >= 5) return "GOLD";
+      return "SILVER";
+    };
 
     /* =========================
-       CASUAL
+       CASUAL DATA
     ========================= */
     const casualKills = casualProfile?.kills ?? get("kills");
     const casualDeaths = casualProfile?.deaths ?? get("deaths");
@@ -114,7 +134,7 @@ app.get("/api/stats", async (req, res) => {
     };
 
     /* =========================
-       RANKED
+       RANKED DATA
     ========================= */
     const rankedKills = rankedProfile?.kills ?? null;
     const rankedDeaths = rankedProfile?.deaths ?? null;
@@ -130,8 +150,8 @@ app.get("/api/stats", async (req, res) => {
       wins: rankedProfile?.wins ?? null,
       losses: rankedProfile?.losses ?? null,
 
-      rank: rankedProfile?.rank ?? "UNRANKED",
-      mmr: rankedProfile?.rank_points ?? null
+      rank: getRankName(rankedProfile?.rank),
+      mmr: rankedProfile?.rank_points ?? 0
     };
 
     /* =========================
