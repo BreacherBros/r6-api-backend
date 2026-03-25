@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (WORKING VERSION)
+   R6DATA API (FIXED FOR FRONTEND)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -53,32 +53,51 @@ app.get("/api/stats", async (req, res) => {
 
     const data = await response.json();
 
-    const segments = data?.profiles?.[0]?.segments || [];
+    const profile = data?.profiles?.[0];
+    const segments = profile?.segments || [];
 
     const overview = segments.find(s => s.type === "overview");
-    const ranked = segments.find(s => s.type === "ranked");
+    const rankedSeg = segments.find(s => s.type === "ranked");
 
     const val = (obj, key) =>
       obj?.stats?.[key]?.displayValue ??
       obj?.stats?.[key]?.value ??
-      0;
+      null;
 
+    /* =========================
+       RESPONSE (MATCHT FRONTEND)
+    ========================= */
     const result = {
-      username: data?.profiles?.[0]?.platformInfo?.platformUserHandle,
-      platform: platformType.toUpperCase(),
+      ranked: {
+        username: profile?.platformInfo?.platformUserHandle,
+        platform: platformType.toUpperCase(),
 
-      // 🔥 OVERVIEW
-      kills: val(overview, "kills"),
-      deaths: val(overview, "deaths"),
-      kd: val(overview, "kd"),
+        kills: val(rankedSeg, "kills"),
+        deaths: val(rankedSeg, "deaths"),
+        kd: val(rankedSeg, "kd"),
 
-      wins: val(overview, "wins"),
-      losses: val(overview, "losses"),
-      level: val(overview, "level"),
+        wins: val(rankedSeg, "wins"),
+        losses: val(rankedSeg, "losses"),
 
-      // 🔥 RANKED
-      rank: val(ranked, "rankName") || "UNRANKED",
-      mmr: val(ranked, "rating")
+        rank: val(rankedSeg, "rankName") || "UNRANKED",
+        mmr: val(rankedSeg, "rating")
+      },
+
+      casual: {
+        username: profile?.platformInfo?.platformUserHandle,
+        platform: platformType.toUpperCase(),
+
+        kills: val(overview, "kills"),
+        deaths: val(overview, "deaths"),
+        kd: val(overview, "kd"),
+
+        wins: val(overview, "wins"),
+        losses: val(overview, "losses"),
+        level: val(overview, "level"),
+
+        rank: "UNRANKED",
+        mmr: null
+      }
     };
 
     res.setHeader("Cache-Control", "no-store");
