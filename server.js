@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FIXED FOR FRONTEND)
+   R6DATA API (FINAL WORKING 🔥)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -54,46 +54,58 @@ app.get("/api/stats", async (req, res) => {
     const data = await response.json();
 
     const profile = data?.profiles?.[0];
-    const segments = profile?.segments || [];
-
-    const overview = segments.find(s => s.type === "overview");
-    const rankedSeg = segments.find(s => s.type === "ranked");
-
-    const val = (obj, key) =>
-      obj?.stats?.[key]?.displayValue ??
-      obj?.stats?.[key]?.value ??
-      null;
+    const username =
+      profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       RESPONSE (MATCHT FRONTEND)
+       🔥 BOARD DATA (DAS WICHTIGE)
+    ========================= */
+    const root = data?.platform_families_full_profiles?.[0];
+    const boards = root?.board_ids_full_profiles || [];
+
+    const rankedBoard = boards.find(b => b.board_id === "pvp_ranked");
+    const casualBoard = boards.find(b => b.board_id === "pvp_casual");
+
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile;
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile;
+
+    /* =========================
+       HELPER
+    ========================= */
+    const calcKD = (k, d) =>
+      (k && d && d !== 0) ? (k / d).toFixed(2) : null;
+
+    /* =========================
+       RESPONSE (FRONTEND READY)
     ========================= */
     const result = {
       ranked: {
-        username: profile?.platformInfo?.platformUserHandle,
+        username,
         platform: platformType.toUpperCase(),
 
-        kills: val(rankedSeg, "kills"),
-        deaths: val(rankedSeg, "deaths"),
-        kd: val(rankedSeg, "kd"),
+        kills: rankedProfile?.kills ?? null,
+        deaths: rankedProfile?.deaths ?? null,
+        kd: calcKD(rankedProfile?.kills, rankedProfile?.deaths),
 
-        wins: val(rankedSeg, "wins"),
-        losses: val(rankedSeg, "losses"),
+        wins: rankedProfile?.wins ?? null,
+        losses: rankedProfile?.losses ?? null,
 
-        rank: val(rankedSeg, "rankName") || "UNRANKED",
-        mmr: val(rankedSeg, "rating")
+        rank: rankedProfile?.rank ?? "UNRANKED",
+        mmr: rankedProfile?.rank_points ?? null
       },
 
       casual: {
-        username: profile?.platformInfo?.platformUserHandle,
+        username,
         platform: platformType.toUpperCase(),
 
-        kills: val(overview, "kills"),
-        deaths: val(overview, "deaths"),
-        kd: val(overview, "kd"),
+        kills: casualProfile?.kills ?? null,
+        deaths: casualProfile?.deaths ?? null,
+        kd: calcKD(casualProfile?.kills, casualProfile?.deaths),
 
-        wins: val(overview, "wins"),
-        losses: val(overview, "losses"),
-        level: val(overview, "level"),
+        wins: casualProfile?.wins ?? null,
+        losses: casualProfile?.losses ?? null,
+
+        level: null,
 
         rank: "UNRANKED",
         mmr: null
@@ -101,14 +113,14 @@ app.get("/api/stats", async (req, res) => {
     };
 
     res.setHeader("Cache-Control", "no-store");
-
     res.json(result);
 
   } catch (err) {
-    console.error("Backend Fehler:", err);
+    console.error("❌ Backend Fehler:", err);
 
     res.status(500).json({
-      error: "Server error"
+      error: "Server error",
+      details: err.message
     });
   }
 });
