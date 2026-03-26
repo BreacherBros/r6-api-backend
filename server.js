@@ -1,3 +1,4 @@
+
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
@@ -36,16 +37,15 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const isPC = platformType === "uplay";
-    const apiPlatform = isPC ? "pc" : platformType;
+    const apiPlatform = platformType; // ✅ FIX
+
+    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
     console.log("REQUEST:", nameOnPlatform, apiPlatform);
 
-    const response = await fetch(
-      `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`,
-      {
-        headers: { "api-key": API_KEY }
-      }
-    );
+    const response = await fetch(url, {
+      headers: { "api-key": API_KEY }
+    });
 
     const data = await response.json();
 
@@ -55,10 +55,6 @@ app.get("/api/stats", async (req, res) => {
         details: data
       });
     }
-
-    /* =========================
-       ROOT
-    ========================= */
 
     const root = data?.platform_families_full_profiles?.[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -71,20 +67,16 @@ app.get("/api/stats", async (req, res) => {
       b.board_id === "pvp_casual" || b.board_id === "standard"
     );
 
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile;
-    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics;
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || null;
 
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile;
-    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics;
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
 
     const profile = data?.profiles?.[0];
     const stats = profile?.stats || {};
 
     const get = (key) => stats?.[key]?.value ?? null;
-
-    /* =========================
-       HELPERS
-    ========================= */
 
     const calcKD = (k, d) => {
       if (!k || !d || d === 0) return null;
@@ -101,72 +93,32 @@ app.get("/api/stats", async (req, res) => {
       return "SILVER";
     };
 
-    /* =========================
-       🎮 CASUAL (HYBRID)
-    ========================= */
-
-    const casualKills = isPC
-      ? casualStats?.kills
-      : casualProfile?.kills ?? get("kills");
-
-    const casualDeaths = isPC
-      ? casualStats?.deaths
-      : casualProfile?.deaths ?? get("deaths");
-
-    const casualWins = isPC
-      ? casualStats?.match_outcomes?.wins
-      : casualProfile?.wins ?? get("matchesWon");
-
-    const casualLosses = isPC
-      ? casualStats?.match_outcomes?.losses
-      : casualProfile?.losses ?? get("matchesLost");
-
     const casual = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
-
-      kills: casualKills,
-      deaths: casualDeaths,
-      kd: calcKD(casualKills, casualDeaths),
-
-      wins: casualWins,
-      losses: casualLosses,
-
+      kills: casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
+      deaths: casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths"),
+      kd: calcKD(
+        casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
+        casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths")
+      ),
+      wins: casualStats?.match_outcomes?.wins ?? casualProfile?.wins ?? get("matchesWon"),
+      losses: casualStats?.match_outcomes?.losses ?? casualProfile?.losses ?? get("matchesLost"),
       rank: "UNRANKED",
       mmr: null
     };
 
-    /* =========================
-       🏆 RANKED (HYBRID)
-    ========================= */
-
-    const rankedKills = isPC
-      ? rankedStats?.kills
-      : rankedProfile?.kills;
-
-    const rankedDeaths = isPC
-      ? rankedStats?.deaths
-      : rankedProfile?.deaths;
-
-    const rankedWins = isPC
-      ? rankedStats?.match_outcomes?.wins
-      : rankedProfile?.wins;
-
-    const rankedLosses = isPC
-      ? rankedStats?.match_outcomes?.losses
-      : rankedProfile?.losses;
-
     const ranked = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
-
-      kills: rankedKills,
-      deaths: rankedDeaths,
-      kd: calcKD(rankedKills, rankedDeaths),
-
-      wins: rankedWins,
-      losses: rankedLosses,
-
+      kills: rankedStats?.kills ?? rankedProfile?.kills,
+      deaths: rankedStats?.deaths ?? rankedProfile?.deaths,
+      kd: calcKD(
+        rankedStats?.kills ?? rankedProfile?.kills,
+        rankedStats?.deaths ?? rankedProfile?.deaths
+      ),
+      wins: rankedStats?.match_outcomes?.wins ?? rankedProfile?.wins,
+      losses: rankedStats?.match_outcomes?.losses ?? rankedProfile?.losses,
       rank: getRankName(rankedProfile?.rank),
       mmr: rankedProfile?.rank_points ?? 0
     };
