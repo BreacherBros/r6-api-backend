@@ -58,7 +58,7 @@ app.get("/api/stats", async (req, res) => {
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 ROOT FIX (PSN + PC SAFE)
+       🔥 ROOT (PSN bleibt gleich)
     ========================= */
 
     let root;
@@ -68,12 +68,15 @@ app.get("/api/stats", async (req, res) => {
         ?.find(p => p.platform_family === "pc");
     }
 
-    // 🔥 fallback für PSN & wenn PC nix findet
     if (!root) {
       root = data?.platform_families_full_profiles?.[0];
     }
 
     const boards = root?.board_ids_full_profiles || [];
+
+    /* =========================
+       🔥 HIER IST DER FIX !!!
+    ========================= */
 
     const rankedBoard = boards.find(b =>
       b.board_id === "pvp_ranked" || b.board_id === "ranked"
