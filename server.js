@@ -58,13 +58,20 @@ app.get("/api/stats", async (req, res) => {
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 PLATFORM FIX
+       🔥 ROOT FIX (PSN + PC SAFE)
     ========================= */
 
-    const platformFamily = apiPlatform === "pc" ? "pc" : "console";
+    let root;
 
-    const root = data?.platform_families_full_profiles
-      ?.find(p => p.platform_family === platformFamily);
+    if (apiPlatform === "pc") {
+      root = data?.platform_families_full_profiles
+        ?.find(p => p.platform_family === "pc");
+    }
+
+    // 🔥 fallback für PSN & wenn PC nix findet
+    if (!root) {
+      root = data?.platform_families_full_profiles?.[0];
+    }
 
     const boards = root?.board_ids_full_profiles || [];
 
@@ -102,7 +109,7 @@ app.get("/api/stats", async (req, res) => {
     };
 
     /* =========================
-       🎮 CASUAL (FIXED)
+       CASUAL
     ========================= */
 
     const casualKills =
@@ -138,7 +145,7 @@ app.get("/api/stats", async (req, res) => {
     };
 
     /* =========================
-       🏆 RANKED (FIXED)
+       RANKED
     ========================= */
 
     const rankedKills =
@@ -175,10 +182,7 @@ app.get("/api/stats", async (req, res) => {
 
     res.setHeader("Cache-Control", "no-store");
 
-    res.json({
-      ranked,
-      casual
-    });
+    res.json({ ranked, casual });
 
   } catch (err) {
     console.error("❌ Backend Fehler:", err);
