@@ -35,17 +35,35 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
+    // 🔥 FIX: uplay → pc
     const apiPlatform = platformType === "uplay" ? "pc" : platformType;
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=console,pc`;
+
+    console.log("REQUEST:", nameOnPlatform, apiPlatform);
 
     const response = await fetch(url, {
       headers: { "api-key": API_KEY }
     });
 
-    const data = await response.json();
+    // 🔥 SAFE PARSE (KEIN CRASH MEHR)
+    const text = await response.text();
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error("❌ INVALID JSON FROM API:", text);
+
+      return res.status(500).json({
+        error: "Invalid JSON from API",
+        preview: text.substring(0, 300)
+      });
+    }
 
     if (!response.ok) {
+      console.error("❌ API ERROR:", data);
+
       return res.status(500).json({
         error: "R6Data API error",
         details: data
@@ -53,13 +71,23 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* =========================
-       🔥 ROOT SAFE (PSN + PC)
+       🔥 ROOT FIX (PC + PSN)
     ========================= */
 
-    const familyRoot =
-      data?.platform_families_full_profiles?.find(p => p.platform_family === "pc") ||
-      data?.platform_families_full_profiles?.find(p => p.platform_family === "console") ||
-      data?.platform_families_full_profiles?.[0];
+    let familyRoot;
+
+    if (apiPlatform === "pc") {
+      familyRoot = data?.platform_families_full_profiles
+        ?.find(p => p.platform_family === "pc");
+    } else {
+      familyRoot = data?.platform_families_full_profiles
+        ?.find(p => p.platform_family === "console");
+    }
+
+    // fallback falls nix gefunden
+    if (!familyRoot) {
+      familyRoot = data?.platform_families_full_profiles?.[0];
+    }
 
     if (!familyRoot) {
       return res.status(404).json({ error: "No platform data found" });
@@ -88,12 +116,12 @@ app.get("/api/stats", async (req, res) => {
     ========================= */
 
     const calcKD = (k, d) => {
-      if (!k || !d || d === 0) return null;
+      if (k === null || d === null || d === 0) return null;
       return (k / d).toFixed(2);
     };
 
     const getRankName = (rank) => {
-      if (!rank) return "UNRANKED";
+      if (!rank && rank !== 0) return "UNRANKED";
       if (rank >= 25) return "CHAMPION";
       if (rank >= 20) return "DIAMOND";
       if (rank >= 15) return "EMERALD";
@@ -151,7 +179,7 @@ app.get("/api/stats", async (req, res) => {
     res.json({ ranked, casual });
 
   } catch (err) {
-    console.error("❌ Backend Fehler:", err);
+    console.error("❌ BACKEND CRASH:", err);
 
     res.status(500).json({
       error: "Server error",
@@ -160,6 +188,7 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
+/* ========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
