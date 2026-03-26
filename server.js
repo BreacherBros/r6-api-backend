@@ -6,51 +6,27 @@ import tiktokRoutes from "./tiktok.js";
 
 const app = express();
 
-/* =========================
-   GLOBAL CORS
-========================= */
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type"]
+}));
 
 app.use(express.json());
 
-/* =========================
-   ROUTES
-========================= */
 app.use("/api", youtubeRoutes);
 app.use("/api", tiktokRoutes);
 
-/* =========================
-   ROOT TEST
-========================= */
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-/* =========================
-   R6DATA API (SAFE + WORKING STYLE)
-========================= */
 const API_KEY = process.env.API_KEY;
 
-const safe = (v, fallback = null) => (v !== undefined && v !== null ? v : fallback);
-
-const getStatValue = (obj, key) =>
-  obj?.[key]?.value ?? obj?.[key]?.displayValue ?? null;
-
-const calcKD = (kills, deaths) => {
-  if (kills === null || kills === undefined) return null;
-  if (deaths === null || deaths === undefined) return null;
-  if (deaths === 0) return null;
-  return (kills / deaths).toFixed(2);
+const calcKD = (k, d) => {
+  if (!k || !d || d === 0) return null;
+  return (k / d).toFixed(2);
 };
-
-const pickBoard = (boards, ids) =>
-  boards.find((b) => ids.includes(b?.board_id));
 
 app.get("/api/stats", async (req, res) => {
   try {
@@ -60,162 +36,97 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Missing parameters" });
     }
 
-    if (!API_KEY) {
-      return res.status(500).json({ error: "API KEY missing" });
-    }
+    const apiPlatform = platformType === "uplay" ? "pc" : platformType;
+    const platformFamily = apiPlatform === "pc" ? "pc" : "console";
 
-    // uplay -> pc, psn -> console
-    const apiPlatformType = platformType === "uplay" ? "pc" : platformType;
-    const platformFamily = apiPlatformType === "pc" ? "pc" : "console";
-
-    // Wir bleiben bei der Struktur, bei der die Stats vorher kamen
-    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${apiPlatformType}&platform_families=${platformFamily}`;
+    const url = `https://r6data.eu/api/stats?type=seasonal&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${platformFamily}`;
 
     const response = await fetch(url, {
-      headers: {
-        "api-key": API_KEY,
-        "Content-Type": "application/json",
-      },
+      headers: { "api-key": API_KEY }
     });
 
-    const text = await response.text();
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return res.status(500).json({
-        error: "Invalid JSON from API",
-        preview: text.slice(0, 250),
-      });
-    }
+    const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({
-        error: "R6Data API error",
-        details: data,
-      });
+      return res.status(500).json({ error: "API error", details: data });
     }
 
     const profile = data?.profiles?.[0];
     const username =
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
-    // Top-Level Stats (wie in der funktionierenden Version)
-    const baseStats = profile?.stats || {};
+    /* =========================
+       🔥 PLATFORM ROOT FIX
+    ========================= */
 
-    // Richtige Plattform-Familie in der Antwort suchen
-    const familyRoot =
-      data?.platform_families_full_profiles?.find(
-        (pf) => pf?.platform_family === platformFamily
-      ) ||
-      data?.platform_families_full_profiles?.[0] ||
-      {};
+    const root = data?.platform_families_full_profiles
+      ?.find(p => p.platform_family === platformFamily) || {};
 
-    const boards = familyRoot?.board_ids_full_profiles || [];
+    const boards = root?.board_ids_full_profiles || [];
 
-    // Board-IDs flexibel abfangen (PSN + PC)
-    const rankedBoard = pickBoard(boards, ["ranked", "pvp_ranked"]);
-    const casualBoard = pickBoard(boards, ["standard", "pvp_casual", "living_game_mode"]);
-
-    const rankedFull = rankedBoard?.full_profiles?.[0] || {};
-    const casualFull = casualBoard?.full_profiles?.[0] || {};
-
-    const rankedProfile = rankedFull?.profile || {};
-    const rankedStats = rankedFull?.season_statistics || {};
-
-    const casualProfile = casualFull?.profile || {};
-    const casualStats = casualFull?.season_statistics || {};
-
-    // --- CASUAL ---
-    const casualKills = safe(
-      casualStats?.kills ?? getStatValue(baseStats, "kills")
-    );
-    const casualDeaths = safe(
-      casualStats?.deaths ?? getStatValue(baseStats, "deaths")
+    const rankedBoard = boards.find(b =>
+      b.board_id === "ranked" || b.board_id === "pvp_ranked"
     );
 
-    const casualWins = safe(
-      casualStats?.match_outcomes?.wins ?? getStatValue(baseStats, "matchesWon")
-    );
-    const casualLosses = safe(
-      casualStats?.match_outcomes?.losses ?? getStatValue(baseStats, "matchesLost")
+    const casualBoard = boards.find(b =>
+      b.board_id === "standard" || b.board_id === "pvp_casual"
     );
 
-    const casual = {
-      username,
-      platform: platformType.toUpperCase(),
+    /* =========================
+       🔥 RANKED ONLY (NO MIX)
+    ========================= */
 
-      kills: casualKills,
-      deaths: casualDeaths,
-      kd: calcKD(casualKills, casualDeaths),
-
-      wins: casualWins,
-      losses: casualLosses,
-      level: safe(getStatValue(baseStats, "level")),
-
-      rank: "UNRANKED",
-      mmr: null,
-    };
-
-    // --- RANKED ---
-    const rankedKills = safe(
-      rankedStats?.kills ?? getStatValue(baseStats, "kills")
-    );
-    const rankedDeaths = safe(
-      rankedStats?.deaths ?? getStatValue(baseStats, "deaths")
-    );
-
-    const rankedWins = safe(
-      rankedStats?.match_outcomes?.wins ?? getStatValue(baseStats, "matchesWon")
-    );
-    const rankedLosses = safe(
-      rankedStats?.match_outcomes?.losses ?? getStatValue(baseStats, "matchesLost")
-    );
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics;
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile;
 
     const ranked = {
       username,
       platform: platformType.toUpperCase(),
 
-      kills: rankedKills,
-      deaths: rankedDeaths,
-      kd: calcKD(rankedKills, rankedDeaths),
+      kills: rankedStats?.kills ?? null,
+      deaths: rankedStats?.deaths ?? null,
+      kd: calcKD(rankedStats?.kills, rankedStats?.deaths),
 
-      wins: rankedWins,
-      losses: rankedLosses,
+      wins: rankedStats?.match_outcomes?.wins ?? null,
+      losses: rankedStats?.match_outcomes?.losses ?? null,
 
-      // Rank bleibt numerisch, MMR ist das, was dein Frontend braucht
-      rank: safe(rankedProfile?.rank ?? getStatValue(baseStats, "rank")) ?? 0,
-      mmr: safe(
-        rankedProfile?.rank_points ??
-          rankedProfile?.max_rank_points ??
-          rankedProfile?.rating ??
-          getStatValue(baseStats, "rankPoints") ??
-          getStatValue(baseStats, "elo")
-      ) ?? 0,
+      rank: rankedProfile?.rank ?? null,
+      mmr: rankedProfile?.rank_points ?? null
     };
 
-    res.setHeader("Cache-Control", "no-store");
+    /* =========================
+       🔥 CASUAL ONLY
+    ========================= */
 
-    return res.json({
-      ranked,
-      casual,
-    });
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics;
+
+    const casual = {
+      username,
+      platform: platformType.toUpperCase(),
+
+      kills: casualStats?.kills ?? null,
+      deaths: casualStats?.deaths ?? null,
+      kd: calcKD(casualStats?.kills, casualStats?.deaths),
+
+      wins: casualStats?.match_outcomes?.wins ?? null,
+      losses: casualStats?.match_outcomes?.losses ?? null,
+
+      rank: "UNRANKED",
+      mmr: null
+    };
+
+    res.json({ ranked, casual });
+
   } catch (err) {
     console.error("❌ Backend Fehler:", err);
 
-    return res.status(500).json({
+    res.status(500).json({
       error: "Server error",
-      details: err.message,
+      details: err.message
     });
   }
 });
 
-/* =========================
-   SERVER START
-========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
