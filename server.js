@@ -36,9 +36,11 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const isPC = platformType === "uplay";
-    const apiPlatform = isPC ? "pc" : platformType;
 
-    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=console,pc`;
+    /* 🔥 FIX: KEIN "pc" mehr hier */
+    const apiPlatform = platformType;
+
+    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
     console.log("REQUEST:", nameOnPlatform, apiPlatform);
 
@@ -66,7 +68,7 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* =========================
-       ROOT
+       ROOT (UNVERÄNDERT)
     ========================= */
 
     let familyRoot;
@@ -144,14 +146,11 @@ app.get("/api/stats", async (req, res) => {
     const casual = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
-
       kills: casualKills,
       deaths: casualDeaths,
       kd: calcKD(casualKills, casualDeaths),
-
       wins: casualWins,
       losses: casualLosses,
-
       rank: "UNRANKED",
       mmr: null
     };
@@ -177,14 +176,11 @@ app.get("/api/stats", async (req, res) => {
     const ranked = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
-
       kills: rankedKills,
       deaths: rankedDeaths,
       kd: calcKD(rankedKills, rankedDeaths),
-
       wins: rankedWins,
       losses: rankedLosses,
-
       rank: getRankName(rankedProfile?.rank),
       mmr: rankedProfile?.rank_points ?? 0
     };
