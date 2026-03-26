@@ -6,6 +6,9 @@ import tiktokRoutes from "./tiktok.js";
 
 const app = express();
 
+/* =========================
+   GLOBAL CORS
+========================= */
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"],
@@ -14,13 +17,22 @@ app.use(cors({
 
 app.use(express.json());
 
+/* =========================
+   ROUTES
+========================= */
 app.use("/api", youtubeRoutes);
 app.use("/api", tiktokRoutes);
 
+/* =========================
+   ROOT TEST
+========================= */
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
+/* =========================
+   🔥 R6DATA FINAL FIXED (PC + CONSOLE)
+========================= */
 const API_KEY = process.env.API_KEY;
 
 app.get("/api/stats", async (req, res) => {
@@ -31,42 +43,74 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Missing parameters" });
     }
 
-    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
+    if (!API_KEY) {
+      return res.status(500).json({ error: "API KEY missing" });
+    }
+
+    const url = `https://r6data.eu/api/stats?type=seasonal&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console,pc`;
 
     const response = await fetch(url, {
-      headers: {
-        "api-key": API_KEY
-      }
+      headers: { "api-key": API_KEY }
     });
 
     const data = await response.json();
 
+    if (!response.ok) {
+      return res.status(500).json({
+        error: "R6Data API error",
+        details: data
+      });
+    }
+
     const profile = data?.profiles?.[0];
+
+    if (!profile) {
+      return res.status(404).json({ error: "Player not found" });
+    }
+
     const username =
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       BOARD DATA (WICHTIG!)
+       🔥 BOARD FIX (PC + CONSOLE)
     ========================= */
+
     const root = data?.platform_families_full_profiles?.[0];
     const boards = root?.board_ids_full_profiles || [];
 
-    const rankedBoard = boards.find(b => b.board_id === "pvp_ranked");
-    const casualBoard = boards.find(b => b.board_id === "pvp_casual");
+    const rankedBoard = boards.find(b =>
+      b.board_id === "pvp_ranked" || b.board_id === "ranked"
+    );
 
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile;
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile;
-
-    const baseStats = profile?.stats || {};
-
-    const calcKD = (k, d) =>
-      (k && d && d !== 0) ? (k / d).toFixed(2) : null;
+    const casualBoard = boards.find(b =>
+      b.board_id === "pvp_casual" || b.board_id === "standard"
+    );
 
     /* =========================
-       CASUAL
+       🔥 STATS FIX (PC API)
     ========================= */
-    const casualKills = casualProfile?.kills ?? baseStats?.kills?.value;
-    const casualDeaths = casualProfile?.deaths ?? baseStats?.deaths?.value;
+
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || null;
+
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
+
+    /* =========================
+       HELPERS
+    ========================= */
+
+    const calcKD = (k, d) => {
+      if (!k || !d || d === 0) return null;
+      return (k / d).toFixed(2);
+    };
+
+    /* =========================
+       🎮 CASUAL
+    ========================= */
+
+    const casualKills = casualStats?.kills ?? null;
+    const casualDeaths = casualStats?.deaths ?? null;
 
     const casual = {
       username,
@@ -76,19 +120,21 @@ app.get("/api/stats", async (req, res) => {
       deaths: casualDeaths,
       kd: calcKD(casualKills, casualDeaths),
 
-      wins: casualProfile?.wins ?? baseStats?.matchesWon?.value,
-      losses: casualProfile?.losses ?? baseStats?.matchesLost?.value,
-      level: baseStats?.level?.value,
+      wins: casualStats?.match_outcomes?.wins ?? null,
+      losses: casualStats?.match_outcomes?.losses ?? null,
+
+      level: null,
 
       rank: "UNRANKED",
       mmr: null
     };
 
     /* =========================
-       RANKED (DAS FUNKTIONIERT!)
+       🏆 RANKED
     ========================= */
-    const rankedKills = rankedProfile?.kills ?? null;
-    const rankedDeaths = rankedProfile?.deaths ?? null;
+
+    const rankedKills = rankedStats?.kills ?? null;
+    const rankedDeaths = rankedStats?.deaths ?? null;
 
     const ranked = {
       username,
@@ -98,15 +144,16 @@ app.get("/api/stats", async (req, res) => {
       deaths: rankedDeaths,
       kd: calcKD(rankedKills, rankedDeaths),
 
-      wins: rankedProfile?.wins ?? null,
-      losses: rankedProfile?.losses ?? null,
+      wins: rankedStats?.match_outcomes?.wins ?? null,
+      losses: rankedStats?.match_outcomes?.losses ?? null,
 
-      // 🔥 DAS IST WICHTIG
-      mmr: rankedProfile?.rank_points ?? null,
-
-      // optional
-      rank: rankedProfile?.rank ?? null
+      rank: rankedProfile?.rank ?? 0,
+      mmr: rankedProfile?.rank_points ?? 0
     };
+
+    /* =========================
+       RESPONSE
+    ========================= */
 
     res.setHeader("Cache-Control", "no-store");
 
@@ -125,6 +172,9 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
+/* =========================
+   SERVER START
+========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
