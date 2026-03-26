@@ -57,21 +57,10 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* =========================
-       🔥 SAFE ROOT
+       ROOT
     ========================= */
 
-    let root;
-
-    if (isPC) {
-      root = data?.platform_families_full_profiles?.find(p => p.platform_family === "pc");
-    } else {
-      root = data?.platform_families_full_profiles?.find(p => p.platform_family === "console");
-    }
-
-    if (!root) {
-      return res.status(404).json({ error: "No platform data" });
-    }
-
+    const root = data?.platform_families_full_profiles?.[0];
     const boards = root?.board_ids_full_profiles || [];
 
     const rankedBoard = boards.find(b =>
@@ -82,15 +71,20 @@ app.get("/api/stats", async (req, res) => {
       b.board_id === "pvp_casual" || b.board_id === "standard"
     );
 
-    /* =========================
-       🔥 SAFE ACCESS
-    ========================= */
-
     const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile;
     const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics;
 
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile;
     const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics;
+
+    const profile = data?.profiles?.[0];
+    const stats = profile?.stats || {};
+
+    const get = (key) => stats?.[key]?.value ?? null;
+
+    /* =========================
+       HELPERS
+    ========================= */
 
     const calcKD = (k, d) => {
       if (!k || !d || d === 0) return null;
@@ -108,42 +102,76 @@ app.get("/api/stats", async (req, res) => {
     };
 
     /* =========================
-       🎮 CASUAL
+       🎮 CASUAL (HYBRID)
     ========================= */
+
+    const casualKills = isPC
+      ? casualStats?.kills
+      : casualProfile?.kills ?? get("kills");
+
+    const casualDeaths = isPC
+      ? casualStats?.deaths
+      : casualProfile?.deaths ?? get("deaths");
+
+    const casualWins = isPC
+      ? casualStats?.match_outcomes?.wins
+      : casualProfile?.wins ?? get("matchesWon");
+
+    const casualLosses = isPC
+      ? casualStats?.match_outcomes?.losses
+      : casualProfile?.losses ?? get("matchesLost");
 
     const casual = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
-      kills: casualStats?.kills ?? null,
-      deaths: casualStats?.deaths ?? null,
-      kd: calcKD(casualStats?.kills, casualStats?.deaths),
+      kills: casualKills,
+      deaths: casualDeaths,
+      kd: calcKD(casualKills, casualDeaths),
 
-      wins: casualStats?.match_outcomes?.wins ?? null,
-      losses: casualStats?.match_outcomes?.losses ?? null,
+      wins: casualWins,
+      losses: casualLosses,
 
       rank: "UNRANKED",
       mmr: null
     };
 
     /* =========================
-       🏆 RANKED
+       🏆 RANKED (HYBRID)
     ========================= */
+
+    const rankedKills = isPC
+      ? rankedStats?.kills
+      : rankedProfile?.kills;
+
+    const rankedDeaths = isPC
+      ? rankedStats?.deaths
+      : rankedProfile?.deaths;
+
+    const rankedWins = isPC
+      ? rankedStats?.match_outcomes?.wins
+      : rankedProfile?.wins;
+
+    const rankedLosses = isPC
+      ? rankedStats?.match_outcomes?.losses
+      : rankedProfile?.losses;
 
     const ranked = {
       username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
-      kills: rankedStats?.kills ?? null,
-      deaths: rankedStats?.deaths ?? null,
-      kd: calcKD(rankedStats?.kills, rankedStats?.deaths),
+      kills: rankedKills,
+      deaths: rankedDeaths,
+      kd: calcKD(rankedKills, rankedDeaths),
 
-      wins: rankedStats?.match_outcomes?.wins ?? null,
-      losses: rankedStats?.match_outcomes?.losses ?? null,
+      wins: rankedWins,
+      losses: rankedLosses,
 
       rank: getRankName(rankedProfile?.rank),
       mmr: rankedProfile?.rank_points ?? 0
     };
+
+    res.setHeader("Cache-Control", "no-store");
 
     res.json({ ranked, casual });
 
