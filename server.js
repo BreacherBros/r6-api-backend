@@ -1,4 +1,3 @@
-
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
@@ -37,7 +36,9 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const isPC = platformType === "uplay";
-    const apiPlatform = platformType; // ✅ FIX
+
+    /* 🔥 HIER IST DER EINZIGE WICHTIGE FIX */
+    const apiPlatform = isPC ? "pc" : platformType;
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
