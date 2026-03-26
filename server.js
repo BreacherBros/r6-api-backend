@@ -35,8 +35,8 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
-    // 🔥 FIX: uplay → pc
-    const apiPlatform = platformType === "uplay" ? "pc" : platformType;
+    const isPC = platformType === "uplay";
+    const apiPlatform = isPC ? "pc" : platformType;
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=console,pc`;
 
@@ -46,37 +46,32 @@ app.get("/api/stats", async (req, res) => {
       headers: { "api-key": API_KEY }
     });
 
-    // 🔥 SAFE PARSE (KEIN CRASH MEHR)
     const text = await response.text();
 
     let data;
     try {
       data = JSON.parse(text);
-    } catch (e) {
-      console.error("❌ INVALID JSON FROM API:", text);
-
+    } catch {
       return res.status(500).json({
         error: "Invalid JSON from API",
-        preview: text.substring(0, 300)
+        preview: text.substring(0, 200)
       });
     }
 
     if (!response.ok) {
-      console.error("❌ API ERROR:", data);
-
       return res.status(500).json({
-        error: "R6Data API error",
+        error: "API error",
         details: data
       });
     }
 
     /* =========================
-       🔥 ROOT FIX (PC + PSN)
+       ROOT
     ========================= */
 
     let familyRoot;
 
-    if (apiPlatform === "pc") {
+    if (isPC) {
       familyRoot = data?.platform_families_full_profiles
         ?.find(p => p.platform_family === "pc");
     } else {
@@ -84,13 +79,8 @@ app.get("/api/stats", async (req, res) => {
         ?.find(p => p.platform_family === "console");
     }
 
-    // fallback falls nix gefunden
     if (!familyRoot) {
       familyRoot = data?.platform_families_full_profiles?.[0];
-    }
-
-    if (!familyRoot) {
-      return res.status(404).json({ error: "No platform data found" });
     }
 
     const boards = familyRoot?.board_ids_full_profiles || [];
@@ -109,7 +99,10 @@ app.get("/api/stats", async (req, res) => {
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
     const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
 
-    const username = nameOnPlatform;
+    const profile = data?.profiles?.[0];
+    const stats = profile?.stats || {};
+
+    const get = (key) => stats?.[key]?.value ?? null;
 
     /* =========================
        HELPERS
@@ -134,19 +127,30 @@ app.get("/api/stats", async (req, res) => {
        🎮 CASUAL
     ========================= */
 
-    const casualKills = casualStats?.kills ?? null;
-    const casualDeaths = casualStats?.deaths ?? null;
+    let casualKills, casualDeaths, casualWins, casualLosses;
+
+    if (isPC) {
+      casualKills = casualStats?.kills ?? null;
+      casualDeaths = casualStats?.deaths ?? null;
+      casualWins = casualStats?.match_outcomes?.wins ?? null;
+      casualLosses = casualStats?.match_outcomes?.losses ?? null;
+    } else {
+      casualKills = casualProfile?.kills ?? get("kills");
+      casualDeaths = casualProfile?.deaths ?? get("deaths");
+      casualWins = casualProfile?.wins ?? get("matchesWon");
+      casualLosses = casualProfile?.losses ?? get("matchesLost");
+    }
 
     const casual = {
-      username,
+      username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
       kills: casualKills,
       deaths: casualDeaths,
       kd: calcKD(casualKills, casualDeaths),
 
-      wins: casualStats?.match_outcomes?.wins ?? null,
-      losses: casualStats?.match_outcomes?.losses ?? null,
+      wins: casualWins,
+      losses: casualLosses,
 
       rank: "UNRANKED",
       mmr: null
@@ -156,19 +160,30 @@ app.get("/api/stats", async (req, res) => {
        🏆 RANKED
     ========================= */
 
-    const rankedKills = rankedStats?.kills ?? null;
-    const rankedDeaths = rankedStats?.deaths ?? null;
+    let rankedKills, rankedDeaths, rankedWins, rankedLosses;
+
+    if (isPC) {
+      rankedKills = rankedStats?.kills ?? null;
+      rankedDeaths = rankedStats?.deaths ?? null;
+      rankedWins = rankedStats?.match_outcomes?.wins ?? null;
+      rankedLosses = rankedStats?.match_outcomes?.losses ?? null;
+    } else {
+      rankedKills = rankedProfile?.kills ?? null;
+      rankedDeaths = rankedProfile?.deaths ?? null;
+      rankedWins = rankedProfile?.wins ?? null;
+      rankedLosses = rankedProfile?.losses ?? null;
+    }
 
     const ranked = {
-      username,
+      username: nameOnPlatform,
       platform: platformType.toUpperCase(),
 
       kills: rankedKills,
       deaths: rankedDeaths,
       kd: calcKD(rankedKills, rankedDeaths),
 
-      wins: rankedStats?.match_outcomes?.wins ?? null,
-      losses: rankedStats?.match_outcomes?.losses ?? null,
+      wins: rankedWins,
+      losses: rankedLosses,
 
       rank: getRankName(rankedProfile?.rank),
       mmr: rankedProfile?.rank_points ?? 0
@@ -188,7 +203,6 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
-/* ========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
