@@ -31,9 +31,11 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   🔥 R6DATA FINAL FIXED (PC + CONSOLE)
+   🔥 R6DATA FINAL (CRASH SAFE)
 ========================= */
 const API_KEY = process.env.API_KEY;
+
+const safe = (v) => v ?? null;
 
 app.get("/api/stats", async (req, res) => {
   try {
@@ -56,45 +58,39 @@ app.get("/api/stats", async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({
-        error: "R6Data API error",
-        details: data
-      });
+      console.log("API ERROR:", data);
+      return res.status(500).json({ error: "R6Data API error" });
     }
 
     const profile = data?.profiles?.[0];
-
-    if (!profile) {
-      return res.status(404).json({ error: "Player not found" });
-    }
 
     const username =
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 BOARD FIX (PC + CONSOLE)
+       🔥 SAFE BOARD HANDLING
     ========================= */
 
-    const root = data?.platform_families_full_profiles?.[0];
+    const root = data?.platform_families_full_profiles?.[0] || {};
     const boards = root?.board_ids_full_profiles || [];
 
     const rankedBoard = boards.find(b =>
-      b.board_id === "pvp_ranked" || b.board_id === "ranked"
+      b.board_id === "ranked" || b.board_id === "pvp_ranked"
     );
 
     const casualBoard = boards.find(b =>
-      b.board_id === "pvp_casual" || b.board_id === "standard"
+      b.board_id === "standard" || b.board_id === "pvp_casual"
     );
 
     /* =========================
-       🔥 STATS FIX (PC API)
+       🔥 SAFE DATA EXTRACTION
     ========================= */
 
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
-    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || null;
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || {};
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || {};
 
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
-    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     /* =========================
        HELPERS
@@ -109,22 +105,18 @@ app.get("/api/stats", async (req, res) => {
        🎮 CASUAL
     ========================= */
 
-    const casualKills = casualStats?.kills ?? null;
-    const casualDeaths = casualStats?.deaths ?? null;
-
     const casual = {
       username,
       platform: platformType.toUpperCase(),
 
-      kills: casualKills,
-      deaths: casualDeaths,
-      kd: calcKD(casualKills, casualDeaths),
+      kills: safe(casualStats.kills),
+      deaths: safe(casualStats.deaths),
+      kd: calcKD(casualStats.kills, casualStats.deaths),
 
-      wins: casualStats?.match_outcomes?.wins ?? null,
-      losses: casualStats?.match_outcomes?.losses ?? null,
+      wins: safe(casualStats.match_outcomes?.wins),
+      losses: safe(casualStats.match_outcomes?.losses),
 
       level: null,
-
       rank: "UNRANKED",
       mmr: null
     };
@@ -133,22 +125,19 @@ app.get("/api/stats", async (req, res) => {
        🏆 RANKED
     ========================= */
 
-    const rankedKills = rankedStats?.kills ?? null;
-    const rankedDeaths = rankedStats?.deaths ?? null;
-
     const ranked = {
       username,
       platform: platformType.toUpperCase(),
 
-      kills: rankedKills,
-      deaths: rankedDeaths,
-      kd: calcKD(rankedKills, rankedDeaths),
+      kills: safe(rankedStats.kills),
+      deaths: safe(rankedStats.deaths),
+      kd: calcKD(rankedStats.kills, rankedStats.deaths),
 
-      wins: rankedStats?.match_outcomes?.wins ?? null,
-      losses: rankedStats?.match_outcomes?.losses ?? null,
+      wins: safe(rankedStats.match_outcomes?.wins),
+      losses: safe(rankedStats.match_outcomes?.losses),
 
-      rank: rankedProfile?.rank ?? 0,
-      mmr: rankedProfile?.rank_points ?? 0
+      rank: safe(rankedProfile.rank),
+      mmr: safe(rankedProfile.rank_points)
     };
 
     /* =========================
@@ -163,10 +152,10 @@ app.get("/api/stats", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("❌ Backend Fehler:", err);
+    console.error("🔥 SERVER CRASH:", err);
 
     res.status(500).json({
-      error: "Server error",
+      error: "Server crash",
       details: err.message
     });
   }
