@@ -6,9 +6,6 @@ import tiktokRoutes from "./tiktok.js";
 
 const app = express();
 
-/* =========================
-   GLOBAL CORS
-========================= */
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"],
@@ -17,22 +14,13 @@ app.use(cors({
 
 app.use(express.json());
 
-/* =========================
-   ROUTES
-========================= */
 app.use("/api", youtubeRoutes);
 app.use("/api", tiktokRoutes);
 
-/* =========================
-   ROOT TEST
-========================= */
 app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
-/* =========================
-   🔥 R6DATA API (PSN + PC FIX)
-========================= */
 const API_KEY = process.env.API_KEY;
 
 app.get("/api/stats", async (req, res) => {
@@ -47,29 +35,21 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
-    /* 🔥 FIX 1: UPLAY → PC */
     const apiPlatform = platformType === "uplay" ? "pc" : platformType;
 
-    /* 🔥 FIX 2: beide Plattformen erlauben */
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=console,pc`;
 
     const response = await fetch(url, {
-      headers: {
-        "api-key": API_KEY
-      }
+      headers: { "api-key": API_KEY }
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      return res.status(500).json({
-        error: "R6Data API error",
-        details: data
-      });
+      return res.status(500).json({ error: "R6Data API error", details: data });
     }
 
     const profile = data?.profiles?.[0];
-
     if (!profile) {
       return res.status(404).json({ error: "Player not found" });
     }
@@ -78,35 +58,36 @@ app.get("/api/stats", async (req, res) => {
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 FIX 3: richtige Plattform wählen
+       🔥 PLATFORM FIX
     ========================= */
 
     const platformFamily = apiPlatform === "pc" ? "pc" : "console";
 
     const root = data?.platform_families_full_profiles
-      ?.find(p => p.platform_family === platformFamily)
-      || data?.platform_families_full_profiles?.[0];
+      ?.find(p => p.platform_family === platformFamily);
 
     const boards = root?.board_ids_full_profiles || [];
 
-    const rankedBoard = boards.find(b => b.board_id === "pvp_ranked" || b.board_id === "ranked");
-    const casualBoard = boards.find(b => b.board_id === "pvp_casual" || b.board_id === "standard");
+    const rankedBoard = boards.find(b =>
+      b.board_id === "pvp_ranked" || b.board_id === "ranked"
+    );
+
+    const casualBoard = boards.find(b =>
+      b.board_id === "pvp_casual" || b.board_id === "standard"
+    );
 
     const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || null;
 
-    /* =========================
-       🔥 FALLBACK STATS (UNVERÄNDERT)
-    ========================= */
-    const stats = profile?.stats || {};
-    const get = (key) => stats?.[key]?.value ?? null;
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
 
     /* =========================
        HELPERS
     ========================= */
+
     const calcKD = (k, d) => {
-      if (k === null || d === null) return null;
-      if (d === 0) return null;
+      if (!k || !d || d === 0) return null;
       return (k / d).toFixed(2);
     };
 
@@ -121,10 +102,18 @@ app.get("/api/stats", async (req, res) => {
     };
 
     /* =========================
-       CASUAL
+       🎮 CASUAL (FIXED)
     ========================= */
-    const casualKills = casualProfile?.kills ?? get("kills");
-    const casualDeaths = casualProfile?.deaths ?? get("deaths");
+
+    const casualKills =
+      apiPlatform === "pc"
+        ? casualStats?.kills
+        : casualProfile?.kills;
+
+    const casualDeaths =
+      apiPlatform === "pc"
+        ? casualStats?.deaths
+        : casualProfile?.deaths;
 
     const casual = {
       username,
@@ -134,19 +123,33 @@ app.get("/api/stats", async (req, res) => {
       deaths: casualDeaths,
       kd: calcKD(casualKills, casualDeaths),
 
-      wins: casualProfile?.wins ?? get("matchesWon"),
-      losses: casualProfile?.losses ?? get("matchesLost"),
-      level: get("level"),
+      wins:
+        apiPlatform === "pc"
+          ? casualStats?.match_outcomes?.wins
+          : casualProfile?.wins,
+
+      losses:
+        apiPlatform === "pc"
+          ? casualStats?.match_outcomes?.losses
+          : casualProfile?.losses,
 
       rank: "UNRANKED",
       mmr: null
     };
 
     /* =========================
-       RANKED
+       🏆 RANKED (FIXED)
     ========================= */
-    const rankedKills = rankedProfile?.kills ?? null;
-    const rankedDeaths = rankedProfile?.deaths ?? null;
+
+    const rankedKills =
+      apiPlatform === "pc"
+        ? rankedStats?.kills
+        : rankedProfile?.kills;
+
+    const rankedDeaths =
+      apiPlatform === "pc"
+        ? rankedStats?.deaths
+        : rankedProfile?.deaths;
 
     const ranked = {
       username,
@@ -156,8 +159,15 @@ app.get("/api/stats", async (req, res) => {
       deaths: rankedDeaths,
       kd: calcKD(rankedKills, rankedDeaths),
 
-      wins: rankedProfile?.wins ?? null,
-      losses: rankedProfile?.losses ?? null,
+      wins:
+        apiPlatform === "pc"
+          ? rankedStats?.match_outcomes?.wins
+          : rankedProfile?.wins,
+
+      losses:
+        apiPlatform === "pc"
+          ? rankedStats?.match_outcomes?.losses
+          : rankedProfile?.losses,
 
       rank: getRankName(rankedProfile?.rank),
       mmr: rankedProfile?.rank_points ?? 0
@@ -180,9 +190,6 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
-/* =========================
-   SERVER START
-========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
