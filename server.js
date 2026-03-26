@@ -31,7 +31,7 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   R6DATA API (FINAL 🔥 STABLE)
+   🔥 R6DATA API (PSN + PC FIX)
 ========================= */
 const API_KEY = process.env.API_KEY;
 
@@ -47,7 +47,11 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
-    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platformType}&platform_families=console`;
+    /* 🔥 FIX 1: UPLAY → PC */
+    const apiPlatform = platformType === "uplay" ? "pc" : platformType;
+
+    /* 🔥 FIX 2: beide Plattformen erlauben */
+    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=console,pc`;
 
     const response = await fetch(url, {
       headers: {
@@ -74,22 +78,27 @@ app.get("/api/stats", async (req, res) => {
       profile?.platformInfo?.platformUserHandle || nameOnPlatform;
 
     /* =========================
-       🔥 BOARD DATA
+       🔥 FIX 3: richtige Plattform wählen
     ========================= */
-    const root = data?.platform_families_full_profiles?.[0];
+
+    const platformFamily = apiPlatform === "pc" ? "pc" : "console";
+
+    const root = data?.platform_families_full_profiles
+      ?.find(p => p.platform_family === platformFamily)
+      || data?.platform_families_full_profiles?.[0];
+
     const boards = root?.board_ids_full_profiles || [];
 
-    const rankedBoard = boards.find(b => b.board_id === "pvp_ranked");
-    const casualBoard = boards.find(b => b.board_id === "pvp_casual");
+    const rankedBoard = boards.find(b => b.board_id === "pvp_ranked" || b.board_id === "ranked");
+    const casualBoard = boards.find(b => b.board_id === "pvp_casual" || b.board_id === "standard");
 
     const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
 
     /* =========================
-       🔥 FALLBACK STATS
+       🔥 FALLBACK STATS (UNVERÄNDERT)
     ========================= */
     const stats = profile?.stats || {};
-
     const get = (key) => stats?.[key]?.value ?? null;
 
     /* =========================
@@ -112,7 +121,7 @@ app.get("/api/stats", async (req, res) => {
     };
 
     /* =========================
-       CASUAL DATA
+       CASUAL
     ========================= */
     const casualKills = casualProfile?.kills ?? get("kills");
     const casualDeaths = casualProfile?.deaths ?? get("deaths");
@@ -134,7 +143,7 @@ app.get("/api/stats", async (req, res) => {
     };
 
     /* =========================
-       RANKED DATA
+       RANKED
     ========================= */
     const rankedKills = rankedProfile?.kills ?? null;
     const rankedDeaths = rankedProfile?.deaths ?? null;
@@ -154,9 +163,6 @@ app.get("/api/stats", async (req, res) => {
       mmr: rankedProfile?.rank_points ?? 0
     };
 
-    /* =========================
-       RESPONSE
-    ========================= */
     res.setHeader("Cache-Control", "no-store");
 
     res.json({
