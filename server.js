@@ -138,10 +138,11 @@ app.get("/api/stats", async (req, res) => {
 
     const playtime = get("timePlayed");
 
-    const calcKD = (k, d) => {
-      if (!k || !d || d === 0) return null;
-      return (k / d).toFixed(2);
-    };
+   const calcKD = (k, d) => {
+  if (d === 0 || d == null) return null;
+  if (k == null) return null;
+  return (k / d).toFixed(2);
+};
 
     const getRankName = (rank) => {
       if (rank === null || rank === undefined) return "UNRANKED";
