@@ -91,13 +91,16 @@ app.get("/api/stats", async (req, res) => {
       });
     }
 
-    if (!response.ok) {
-      console.error("❌ API ERROR:", response.status, data);
-      return res.status(response.status).json({
-        error: "API error",
-        details: data
-      });
-    }
+if (!response.ok) {
+  console.error("❌ API ERROR:", response.status, data);
+
+  // 🔥 WICHTIG: API ist broken → saubere Antwort geben
+  return res.status(200).json({
+    ranked: null,
+    casual: null,
+    error: "No data found (API returned 500)"
+  });
+}
 
     // 🔥 Kein Crash bei leeren Daten (häufig bei PC)
     if (!data?.platform_families_full_profiles?.length) {
