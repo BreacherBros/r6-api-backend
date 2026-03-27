@@ -37,7 +37,7 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const isPC = platformType === "uplay";
-   const apiPlatform = platformType === "uplay" ? "pc" : platformType;
+    const apiPlatform = platformType; // ✅ FIX
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
