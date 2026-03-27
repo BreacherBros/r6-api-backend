@@ -1,5 +1,3 @@
-
-
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
@@ -11,7 +9,7 @@ await delay(300);
 
 const app = express();
 
-// 🔥 CORS FIX (deine Domain + Debug fallback)
+// 🔥 CORS FIX
 app.use(cors({
   origin: function (origin, callback) {
     const allowed = [
@@ -19,12 +17,11 @@ app.use(cors({
       "https://www.breacherbros.com"
     ];
 
-    // erlaubt auch direkte Aufrufe (Postman / Browser)
     if (!origin || allowed.includes(origin)) {
       callback(null, true);
     } else {
       console.log("❌ Blocked by CORS:", origin);
-      callback(null, true); // DEBUG: erstmal trotzdem erlauben
+      callback(null, true);
     }
   },
   methods: ["GET", "POST"],
@@ -54,7 +51,6 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
-    // 🔥 Plattform Mapping (PC FIX)
     const platformMap = {
       psn: "psn",
       xbox: "xbl",
@@ -75,8 +71,7 @@ app.get("/api/stats", async (req, res) => {
 
     console.log("🔍 REQUEST:", {
       username: nameOnPlatform,
-      platform: apiPlatform,
-      url
+      platform: apiPlatform
     });
 
     const response = await fetch(url, {
@@ -96,31 +91,17 @@ app.get("/api/stats", async (req, res) => {
       });
     }
 
-if (!response.ok) {
-  console.error("❌ API ERROR:", response.status, data);
+    if (!response.ok) {
+      return res.json({ ranked: null, casual: null, error: true });
+    }
 
-  // 🔥 WICHTIG: API ist broken → saubere Antwort geben
-  return res.status(200).json({
-    ranked: null,
-    casual: null,
-    error: "No data found (API returned 500)"
-  });
-}
-
-    // 🔥 Kein Crash bei leeren Daten (häufig bei PC)
-if (
-  !data ||
-  typeof data !== "object" ||
-  !Array.isArray(data.platform_families_full_profiles)
-) {
-  console.error("❌ INVALID DATA STRUCTURE:", data);
-
-  return res.status(200).json({
-    ranked: null,
-    casual: null,
-    error: "Invalid API data"
-  });
-}
+    if (
+      !data ||
+      typeof data !== "object" ||
+      !Array.isArray(data.platform_families_full_profiles)
+    ) {
+      return res.json({ ranked: null, casual: null, error: true });
+    }
 
     const root = data.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -133,28 +114,29 @@ if (
       b.board_id === "pvp_casual" || b.board_id === "standard"
     );
 
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
-    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || null;
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || {};
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || {};
 
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
-    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     const profile = data?.profiles?.[0];
     const stats = profile?.stats || {};
 
     const get = (key) => stats?.[key]?.value ?? null;
+
     // 🔥 EXTRA STATS
-const headshotPct = get("headshotPercentage") ?? get("headshotPct");
-const killsPerMatch = get("killsPerMatch") ?? get("killsPerGame");
-const winPct = get("winPercentage");
+    const headshotPct = get("headshotPercentage") ?? get("headshotPct");
+    const killsPerMatch = get("killsPerMatch") ?? get("killsPerGame");
+    const winPct = get("winPercentage");
 
-const assists = get("assists");
-const damage = get("damageDealt");
+    const assists = get("assists");
+    const damage = get("damageDealt");
 
-const clutches = get("clutches");
-const firstBloods = get("firstBloods");
+    const clutches = get("clutches");
+    const firstBloods = get("firstBloods");
 
-const playtime = get("timePlayed"); // in ms
+    const playtime = get("timePlayed");
 
     const calcKD = (k, d) => {
       if (!k || !d || d === 0) return null;
@@ -171,47 +153,74 @@ const playtime = get("timePlayed"); // in ms
       return "SILVER";
     };
 
+    // 🔥 CASUAL
     const casual = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
+
       kills: casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
       deaths: casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths"),
       kd: calcKD(
         casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
         casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths")
       ),
+
       wins: casualStats?.match_outcomes?.wins ?? casualProfile?.wins ?? get("matchesWon"),
       losses: casualStats?.match_outcomes?.losses ?? casualProfile?.losses ?? get("matchesLost"),
+
+      hsRate: headshotPct,
+      kpm: killsPerMatch,
+      winPct: winPct,
+
+      assists: assists,
+      damage: damage,
+
+      clutches: clutches,
+      firstBloods: firstBloods,
+
+      playtime: playtime,
+
       rank: "UNRANKED",
       mmr: null
     };
 
+    // 🔥 RANKED
     const ranked = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
+
       kills: rankedStats?.kills ?? rankedProfile?.kills,
       deaths: rankedStats?.deaths ?? rankedProfile?.deaths,
       kd: calcKD(
         rankedStats?.kills ?? rankedProfile?.kills,
         rankedStats?.deaths ?? rankedProfile?.deaths
       ),
+
       wins: rankedStats?.match_outcomes?.wins ?? rankedProfile?.wins,
       losses: rankedStats?.match_outcomes?.losses ?? rankedProfile?.losses,
+
+      hsRate: headshotPct,
+      kpm: killsPerMatch,
+      winPct: winPct,
+
+      assists: assists,
+      damage: damage,
+
+      clutches: clutches,
+      firstBloods: firstBloods,
+
+      playtime: playtime,
+
       rank: getRankName(rankedProfile?.rank),
       mmr: rankedProfile?.rank_points ?? 0
     };
 
     res.setHeader("Cache-Control", "no-store");
-
     res.json({ ranked, casual });
 
   } catch (err) {
     console.error("❌ BACKEND CRASH:", err);
-
-    res.status(500).json({
-      error: "Server error",
-      details: err.message
-    });
+    res.status(500).json({ error: true });
   }
 });
 
