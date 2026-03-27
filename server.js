@@ -6,8 +6,22 @@ import tiktokRoutes from "./tiktok.js";
 
 const app = express();
 
+// 🔥 CORS FIX (deine Domain + Debug fallback)
 app.use(cors({
-  origin: "*",
+  origin: function (origin, callback) {
+    const allowed = [
+      "https://breacherbros.com",
+      "https://www.breacherbros.com"
+    ];
+
+    // erlaubt auch direkte Aufrufe (Postman / Browser)
+    if (!origin || allowed.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log("❌ Blocked by CORS:", origin);
+      callback(null, true); // DEBUG: erstmal trotzdem erlauben
+    }
+  },
   methods: ["GET", "POST"],
   allowedHeaders: ["Content-Type"]
 }));
@@ -35,6 +49,7 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
+    // 🔥 Plattform Mapping (PC FIX)
     const platformMap = {
       psn: "psn",
       xbox: "xbl",
@@ -53,7 +68,11 @@ app.get("/api/stats", async (req, res) => {
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    console.log("REQUEST:", nameOnPlatform, apiPlatform, url);
+    console.log("🔍 REQUEST:", {
+      username: nameOnPlatform,
+      platform: apiPlatform,
+      url
+    });
 
     const response = await fetch(url, {
       headers: { "api-key": API_KEY }
@@ -65,7 +84,7 @@ app.get("/api/stats", async (req, res) => {
     try {
       data = JSON.parse(text);
     } catch (e) {
-      console.error("INVALID JSON:", text);
+      console.error("❌ INVALID JSON:", text);
       return res.status(500).json({
         error: "Invalid API response",
         raw: text
@@ -73,13 +92,14 @@ app.get("/api/stats", async (req, res) => {
     }
 
     if (!response.ok) {
-      console.error("API ERROR:", response.status, data);
+      console.error("❌ API ERROR:", response.status, data);
       return res.status(response.status).json({
         error: "API error",
         details: data
       });
     }
 
+    // 🔥 Kein Crash bei leeren Daten (häufig bei PC)
     if (!data?.platform_families_full_profiles?.length) {
       return res.status(404).json({
         error: "No data found (player missing / private / no stats)"
@@ -158,7 +178,7 @@ app.get("/api/stats", async (req, res) => {
     res.json({ ranked, casual });
 
   } catch (err) {
-    console.error("BACKEND CRASH:", err);
+    console.error("❌ BACKEND CRASH:", err);
 
     res.status(500).json({
       error: "Server error",
