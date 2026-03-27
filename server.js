@@ -4,6 +4,9 @@ import cors from "cors";
 import youtubeRoutes from "./youtube.js";
 import tiktokRoutes from "./tiktok.js";
 
+const delay = (ms) => new Promise(res => setTimeout(res, ms));
+await delay(300);
+
 const app = express();
 
 // 🔥 CORS FIX (deine Domain + Debug fallback)
@@ -103,11 +106,19 @@ if (!response.ok) {
 }
 
     // 🔥 Kein Crash bei leeren Daten (häufig bei PC)
-    if (!data?.platform_families_full_profiles?.length) {
-      return res.status(404).json({
-        error: "No data found (player missing / private / no stats)"
-      });
-    }
+if (
+  !data ||
+  typeof data !== "object" ||
+  !Array.isArray(data.platform_families_full_profiles)
+) {
+  console.error("❌ INVALID DATA STRUCTURE:", data);
+
+  return res.status(200).json({
+    ranked: null,
+    casual: null,
+    error: "Invalid API data"
+  });
+}
 
     const root = data.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
