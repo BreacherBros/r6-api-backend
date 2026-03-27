@@ -154,35 +154,39 @@ app.get("/api/stats", async (req, res) => {
     };
 
     // 🔥 CASUAL
-    const casual = {
-      username: nameOnPlatform,
-      platform: apiPlatform.toUpperCase(),
+ const casualKills = casualStats?.kills ?? casualProfile?.kills ?? get("kills");
+const casualDeaths = casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths");
 
-      kills: casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
-      deaths: casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths"),
-      kd: calcKD(
-        casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
-        casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths")
-      ),
+const casualWins = casualStats?.match_outcomes?.wins ?? casualProfile?.wins ?? get("matchesWon");
+const casualLosses = casualStats?.match_outcomes?.losses ?? casualProfile?.losses ?? get("matchesLost");
 
-      wins: casualStats?.match_outcomes?.wins ?? casualProfile?.wins ?? get("matchesWon"),
-      losses: casualStats?.match_outcomes?.losses ?? casualProfile?.losses ?? get("matchesLost"),
+const casual = {
+  username: nameOnPlatform,
+  platform: apiPlatform.toUpperCase(),
 
-      hsRate: headshotPct,
-      kpm: killsPerMatch,
-      winPct: winPct,
+  kills: casualKills,
+  deaths: casualDeaths,
+  kd: calcKD(casualKills, casualDeaths),
 
-      assists: assists,
-      damage: damage,
+  wins: casualWins,
+  losses: casualLosses,
 
-      clutches: clutches,
-      firstBloods: firstBloods,
+  // 🔥 WICHTIG: immer globale stats nutzen
+  hsRate: headshotPct ?? get("headshotPercentage"),
+  kpm: killsPerMatch ?? get("killsPerMatch"),
+  winPct: winPct ?? get("winPercentage"),
 
-      playtime: playtime,
+  assists: assists ?? get("assists"),
+  damage: damage ?? get("damageDealt"),
 
-      rank: "UNRANKED",
-      mmr: null
-    };
+  clutches: clutches ?? get("clutches"),
+  firstBloods: firstBloods ?? get("firstBloods"),
+
+  playtime: playtime ?? get("timePlayed"),
+
+  rank: "UNRANKED",
+  mmr: null
+};
 
     // 🔥 RANKED
     const ranked = {
