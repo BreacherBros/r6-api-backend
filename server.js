@@ -143,6 +143,18 @@ if (
     const stats = profile?.stats || {};
 
     const get = (key) => stats?.[key]?.value ?? null;
+    // 🔥 EXTRA STATS
+const headshotPct = get("headshotPercentage") ?? get("headshotPct");
+const killsPerMatch = get("killsPerMatch") ?? get("killsPerGame");
+const winPct = get("winPercentage");
+
+const assists = get("assists");
+const damage = get("damageDealt");
+
+const clutches = get("clutches");
+const firstBloods = get("firstBloods");
+
+const playtime = get("timePlayed"); // in ms
 
     const calcKD = (k, d) => {
       if (!k || !d || d === 0) return null;
