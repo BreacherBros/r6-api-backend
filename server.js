@@ -1,4 +1,3 @@
-
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
@@ -36,27 +35,58 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
-    const isPC = platformType === "uplay";
-    const apiPlatform = platformType; // ✅ FIX
+    const platformMap = {
+      psn: "psn",
+      xbox: "xbl",
+      xbl: "xbl",
+      pc: "uplay",
+      uplay: "uplay"
+    };
+
+    const apiPlatform = platformMap[platformType.toLowerCase()];
+
+    if (!apiPlatform) {
+      return res.status(400).json({ error: "Invalid platform" });
+    }
+
+    const isPC = apiPlatform === "uplay";
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    console.log("REQUEST:", nameOnPlatform, apiPlatform);
+    console.log("REQUEST:", nameOnPlatform, apiPlatform, url);
 
     const response = await fetch(url, {
       headers: { "api-key": API_KEY }
     });
 
-    const data = await response.json();
+    const text = await response.text();
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      console.error("INVALID JSON:", text);
+      return res.status(500).json({
+        error: "Invalid API response",
+        raw: text
+      });
+    }
 
     if (!response.ok) {
-      return res.status(500).json({
+      console.error("API ERROR:", response.status, data);
+      return res.status(response.status).json({
         error: "API error",
         details: data
       });
     }
 
-    const root = data?.platform_families_full_profiles?.[0];
+    if (!data?.platform_families_full_profiles?.length) {
+      return res.status(404).json({
+        error: "No data found (player missing / private / no stats)"
+      });
+    }
+
+    const root = data.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
 
     const rankedBoard = boards.find(b =>
@@ -84,7 +114,7 @@ app.get("/api/stats", async (req, res) => {
     };
 
     const getRankName = (rank) => {
-      if (!rank && rank !== 0) return "UNRANKED";
+      if (rank === null || rank === undefined) return "UNRANKED";
       if (rank >= 25) return "CHAMPION";
       if (rank >= 20) return "DIAMOND";
       if (rank >= 15) return "EMERALD";
@@ -95,7 +125,7 @@ app.get("/api/stats", async (req, res) => {
 
     const casual = {
       username: nameOnPlatform,
-      platform: platformType.toUpperCase(),
+      platform: apiPlatform.toUpperCase(),
       kills: casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
       deaths: casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths"),
       kd: calcKD(
@@ -110,7 +140,7 @@ app.get("/api/stats", async (req, res) => {
 
     const ranked = {
       username: nameOnPlatform,
-      platform: platformType.toUpperCase(),
+      platform: apiPlatform.toUpperCase(),
       kills: rankedStats?.kills ?? rankedProfile?.kills,
       deaths: rankedStats?.deaths ?? rankedProfile?.deaths,
       kd: calcKD(
@@ -128,7 +158,7 @@ app.get("/api/stats", async (req, res) => {
     res.json({ ranked, casual });
 
   } catch (err) {
-    console.error("❌ BACKEND CRASH:", err);
+    console.error("BACKEND CRASH:", err);
 
     res.status(500).json({
       error: "Server error",
