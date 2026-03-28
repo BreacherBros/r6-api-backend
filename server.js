@@ -9,7 +9,9 @@ await delay(300);
 
 const app = express();
 
-// 🔥 CORS FIX (deine Domain + Debug fallback)
+/* ============================= */
+/* 🔥 CORS */
+/* ============================= */
 app.use(cors({
   origin: function (origin, callback) {
     const allowed = [
@@ -17,12 +19,11 @@ app.use(cors({
       "https://www.breacherbros.com"
     ];
 
-    // erlaubt auch direkte Aufrufe (Postman / Browser)
     if (!origin || allowed.includes(origin)) {
       callback(null, true);
     } else {
       console.log("❌ Blocked by CORS:", origin);
-      callback(null, true); // DEBUG: erstmal trotzdem erlauben
+      callback(null, true);
     }
   },
   methods: ["GET", "POST"],
@@ -40,6 +41,37 @@ app.get("/", (req, res) => {
 
 const API_KEY = process.env.API_KEY;
 
+/* ============================= */
+/* 🔥 HIGHEST RANK FUNCTION */
+/* ============================= */
+function getHighestRank(history) {
+  if (!history || !Array.isArray(history)) return null;
+
+  let best = null;
+
+  for (const entry of history) {
+    const data = entry[1];
+
+    if (!data || typeof data.value !== "number") continue;
+
+    if (!best || data.value > best.value) {
+      best = data;
+    }
+  }
+
+  if (!best) return null;
+
+  return {
+    mmr: best.value,
+    rank: best.metadata?.rank || "UNKNOWN",
+    image: best.metadata?.imageUrl || null,
+    color: best.metadata?.color || "#fff"
+  };
+}
+
+/* ============================= */
+/* 🔥 API */
+/* ============================= */
 app.get("/api/stats", async (req, res) => {
   try {
     const { nameOnPlatform, platformType } = req.query;
@@ -52,7 +84,6 @@ app.get("/api/stats", async (req, res) => {
       return res.status(500).json({ error: "API KEY missing" });
     }
 
-    // 🔥 Plattform Mapping (PC FIX)
     const platformMap = {
       psn: "psn",
       xbox: "xbl",
@@ -62,7 +93,6 @@ app.get("/api/stats", async (req, res) => {
     };
 
     const apiPlatform = platformMap[platformType.toLowerCase()];
-
     if (!apiPlatform) {
       return res.status(400).json({ error: "Invalid platform" });
     }
@@ -71,55 +101,55 @@ app.get("/api/stats", async (req, res) => {
 
     const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    console.log("🔍 REQUEST:", {
-      username: nameOnPlatform,
-      platform: apiPlatform,
-      url
-    });
-
+    /* ============================= */
+    /* 🔥 MAIN STATS */
+    /* ============================= */
     const response = await fetch(url, {
       headers: { "api-key": API_KEY }
     });
 
-    const text = await response.text();
+    const data = await response.json();
 
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      console.error("❌ INVALID JSON:", text);
-      return res.status(500).json({
-        error: "Invalid API response",
-        raw: text
+    if (!response.ok) {
+      return res.status(200).json({
+        ranked: null,
+        casual: null,
+        error: "No data found"
       });
     }
 
-if (!response.ok) {
-  console.error("❌ API ERROR:", response.status, data);
+    if (!data?.platform_families_full_profiles) {
+      return res.status(200).json({
+        ranked: null,
+        casual: null,
+        error: "Invalid API data"
+      });
+    }
 
-  // 🔥 WICHTIG: API ist broken → saubere Antwort geben
-  return res.status(200).json({
-    ranked: null,
-    casual: null,
-    error: "No data found (API returned 500)"
-  });
-}
+    /* ============================= */
+    /* 🔥 HISTORY (PEAK RANK) */
+    /* ============================= */
+    let bestRank = null;
 
-    // 🔥 Kein Crash bei leeren Daten (häufig bei PC)
-if (
-  !data ||
-  typeof data !== "object" ||
-  !Array.isArray(data.platform_families_full_profiles)
-) {
-  console.error("❌ INVALID DATA STRUCTURE:", data);
+    try {
+      const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}`;
 
-  return res.status(200).json({
-    ranked: null,
-    casual: null,
-    error: "Invalid API data"
-  });
-}
+      const historyRes = await fetch(historyUrl, {
+        headers: { "api-key": API_KEY }
+      });
 
+      const historyJson = await historyRes.json();
+      const historyArray = historyJson?.data?.history?.data || [];
+
+      bestRank = getHighestRank(historyArray);
+
+    } catch (err) {
+      console.log("⚠️ History failed (ignore)");
+    }
+
+    /* ============================= */
+    /* 🔥 DATA PARSING */
+    /* ============================= */
     const root = data.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
 
@@ -137,11 +167,6 @@ if (
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
     const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
 
-    const profile = data?.profiles?.[0];
-    const stats = profile?.stats || {};
-
-    const get = (key) => stats?.[key]?.value ?? null;
-
     const calcKD = (k, d) => {
       if (!k || !d || d === 0) return null;
       return (k / d).toFixed(2);
@@ -157,34 +182,50 @@ if (
       return "SILVER";
     };
 
-    const casual = {
-      username: nameOnPlatform,
-      platform: apiPlatform.toUpperCase(),
-      kills: casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
-      deaths: casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths"),
-      kd: calcKD(
-        casualStats?.kills ?? casualProfile?.kills ?? get("kills"),
-        casualStats?.deaths ?? casualProfile?.deaths ?? get("deaths")
-      ),
-      wins: casualStats?.match_outcomes?.wins ?? casualProfile?.wins ?? get("matchesWon"),
-      losses: casualStats?.match_outcomes?.losses ?? casualProfile?.losses ?? get("matchesLost"),
-      rank: "UNRANKED",
-      mmr: null
-    };
+    /* ============================= */
+    /* 🔥 OUTPUT */
+    /* ============================= */
 
     const ranked = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
+
       kills: rankedStats?.kills ?? rankedProfile?.kills,
       deaths: rankedStats?.deaths ?? rankedProfile?.deaths,
       kd: calcKD(
         rankedStats?.kills ?? rankedProfile?.kills,
         rankedStats?.deaths ?? rankedProfile?.deaths
       ),
+
       wins: rankedStats?.match_outcomes?.wins ?? rankedProfile?.wins,
       losses: rankedStats?.match_outcomes?.losses ?? rankedProfile?.losses,
+
       rank: getRankName(rankedProfile?.rank),
-      mmr: rankedProfile?.rank_points ?? 0
+      mmr: rankedProfile?.rank_points ?? 0,
+
+      /* 🔥 NEU: PEAK RANK */
+      bestRank: bestRank?.rank || null,
+      bestMMR: bestRank?.mmr || null,
+      bestRankImg: bestRank?.image || null,
+      bestRankColor: bestRank?.color || null
+    };
+
+    const casual = {
+      username: nameOnPlatform,
+      platform: apiPlatform.toUpperCase(),
+
+      kills: casualStats?.kills ?? casualProfile?.kills,
+      deaths: casualStats?.deaths ?? casualProfile?.deaths,
+      kd: calcKD(
+        casualStats?.kills ?? casualProfile?.kills,
+        casualStats?.deaths ?? casualProfile?.deaths
+      ),
+
+      wins: casualStats?.match_outcomes?.wins ?? casualProfile?.wins,
+      losses: casualStats?.match_outcomes?.losses ?? casualProfile?.losses,
+
+      rank: "UNRANKED",
+      mmr: null
     };
 
     res.setHeader("Cache-Control", "no-store");
@@ -201,6 +242,9 @@ if (
   }
 });
 
+/* ============================= */
+/* 🔥 START */
+/* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Backend running on port", PORT);
