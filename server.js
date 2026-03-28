@@ -215,10 +215,10 @@ console.log("FIRST ENTRY:", historyArray[0]);
       mmr: rankedProfile?.rank_points ?? 0,
 
       /* 🔥 NEU: PEAK RANK */
-   bestRank: bestRank?.rank || getRankName(rankedProfile?.rank),
-bestMMR: bestRank?.mmr || rankedProfile?.rank_points || 0,
+bestRank: bestRank?.rank || null,
+bestMMR: bestRank?.mmr || null,
 bestRankImg: bestRank?.image || null,
-bestRankColor: bestRank?.color || "#ffffff"
+bestRankColor: bestRank?.color || null
     };
 
     const casual = {
