@@ -132,8 +132,8 @@ app.get("/api/stats", async (req, res) => {
     let bestRank = null;
 
     try {
-      const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}`;
-
+const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
+      
       const historyRes = await fetch(historyUrl, {
         headers: { "api-key": API_KEY }
       });
