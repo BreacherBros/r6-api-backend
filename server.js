@@ -139,7 +139,18 @@ const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${en
       });
 
       const historyJson = await historyRes.json();
-      const historyArray = historyJson?.data?.history?.data || [];
+     let historyArray = [];
+
+if (historyJson?.data?.history?.data) {
+  historyArray = historyJson.data.history.data;
+} else if (Array.isArray(historyJson?.data)) {
+  historyArray = historyJson.data;
+} else {
+  console.log("❌ NO HISTORY FOUND:", historyJson);
+}
+      console.log("HISTORY LENGTH:", historyArray.length);
+console.log("FIRST ENTRY:", historyArray[0]);
+      
 
       bestRank = getHighestRank(historyArray);
 
@@ -204,10 +215,10 @@ const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${en
       mmr: rankedProfile?.rank_points ?? 0,
 
       /* 🔥 NEU: PEAK RANK */
-      bestRank: bestRank?.rank || null,
-      bestMMR: bestRank?.mmr || null,
-      bestRankImg: bestRank?.image || null,
-      bestRankColor: bestRank?.color || null
+   bestRank: bestRank?.rank || getRankName(rankedProfile?.rank),
+bestMMR: bestRank?.mmr || rankedProfile?.rank_points || 0,
+bestRankImg: bestRank?.image || null,
+bestRankColor: bestRank?.color || "#ffffff"
     };
 
     const casual = {
