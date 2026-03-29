@@ -4,16 +4,13 @@ import cors from "cors";
 import youtubeRoutes from "./youtube.js";
 import tiktokRoutes from "./tiktok.js";
 
-const delay = (ms) => new Promise(res => setTimeout(res, ms));
-await delay(300);
-
 const app = express();
 
 /* ============================= */
 /* 🔥 CORS */
 /* ============================= */
 app.use(cors({
-  origin: function (origin, callback) {
+  origin: (origin, callback) => {
     const allowed = [
       "https://breacherbros.com",
       "https://www.breacherbros.com"
@@ -25,9 +22,7 @@ app.use(cors({
       console.log("❌ Blocked by CORS:", origin);
       callback(null, true);
     }
-  },
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
+  }
 }));
 
 app.use(express.json());
@@ -42,20 +37,19 @@ app.get("/", (req, res) => {
 const API_KEY = process.env.API_KEY;
 
 /* ============================= */
-/* 🔥 HIGHEST RANK FUNCTION */
+/* 🔥 PEAK FUNCTION */
 /* ============================= */
 function getHighestRank(history) {
-  if (!history || !Array.isArray(history)) return null;
+  if (!Array.isArray(history)) return null;
 
   let best = null;
 
   for (const entry of history) {
-    const data = entry[1];
+    const d = entry?.[1];
+    if (!d?.value) continue;
 
-    if (!data || typeof data.value !== "number") continue;
-
-    if (!best || data.value > best.value) {
-      best = data;
+    if (!best || d.value > best.value) {
+      best = d;
     }
   }
 
@@ -68,6 +62,24 @@ function getHighestRank(history) {
     color: best.metadata?.color || "#fff"
   };
 }
+
+/* ============================= */
+/* 🔥 HELPERS */
+/* ============================= */
+const calcKD = (k, d) => {
+  if (!k || !d || d === 0) return null;
+  return (k / d).toFixed(2);
+};
+
+const getRankName = (rank) => {
+  if (rank == null) return "UNRANKED";
+  if (rank >= 25) return "CHAMPION";
+  if (rank >= 20) return "DIAMOND";
+  if (rank >= 15) return "EMERALD";
+  if (rank >= 10) return "PLATINUM";
+  if (rank >= 5) return "GOLD";
+  return "SILVER";
+};
 
 /* ============================= */
 /* 🔥 API */
@@ -99,157 +111,107 @@ app.get("/api/stats", async (req, res) => {
 
     const isPC = apiPlatform === "uplay";
 
-    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
+    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
+
+    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}`;
 
     /* ============================= */
-    /* 🔥 MAIN STATS */
+    /* 🔥 PARALLEL FETCH (FASTER) */
     /* ============================= */
-    const response = await fetch(url, {
-      headers: { "api-key": API_KEY }
-    });
+    const [statsRes, historyRes] = await Promise.all([
+      fetch(statsUrl, { headers: { "api-key": API_KEY } }),
+      fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null)
+    ]);
 
-    const data = await response.json();
+    const statsData = await statsRes.json();
 
-    if (!response.ok) {
-      return res.status(200).json({
-        ranked: null,
-        casual: null,
-        error: "No data found"
-      });
-    }
-
-    if (!data?.platform_families_full_profiles) {
-      return res.status(200).json({
-        ranked: null,
-        casual: null,
-        error: "Invalid API data"
-      });
+    if (!statsRes.ok || !statsData?.platform_families_full_profiles) {
+      return res.json({ ranked: null, casual: null });
     }
 
     /* ============================= */
-    /* 🔥 HISTORY (PEAK RANK) */
-    /* ============================= */
+    /* 🔥 PEAK */
+/* ============================= */
     let bestRank = null;
 
-    try {
-const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
-      
-      const historyRes = await fetch(historyUrl, {
-        headers: { "api-key": API_KEY }
-      });
-
-      const historyJson = await historyRes.json();
-     let historyArray = [];
-
-if (historyJson?.data?.history?.data) {
-  historyArray = historyJson.data.history.data;
-} else if (Array.isArray(historyJson?.data)) {
-  historyArray = historyJson.data;
-} else {
-  console.log("❌ NO HISTORY FOUND:", historyJson);
-}
-      console.log("HISTORY LENGTH:", historyArray.length);
-console.log("FIRST ENTRY:", historyArray[0]);
-      
-
-      bestRank = getHighestRank(historyArray);
-
-    } catch (err) {
-      console.log("⚠️ History failed (ignore)");
+    if (historyRes) {
+      try {
+        const historyJson = await historyRes.json();
+        const historyArray = historyJson?.data?.history?.data || [];
+        bestRank = getHighestRank(historyArray);
+      } catch {}
     }
 
     /* ============================= */
-    /* 🔥 DATA PARSING */
-    /* ============================= */
-    const root = data.platform_families_full_profiles[0];
+    /* 🔥 PARSE DATA */
+/* ============================= */
+    const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
 
     const rankedBoard = boards.find(b =>
-      b.board_id === "pvp_ranked" || b.board_id === "ranked"
+      ["pvp_ranked", "ranked"].includes(b.board_id)
     );
 
     const casualBoard = boards.find(b =>
-      b.board_id === "pvp_casual" || b.board_id === "standard"
+      ["pvp_casual", "standard"].includes(b.board_id)
     );
 
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || null;
-    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || null;
+    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || {};
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || {};
 
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || null;
-    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || null;
-
-    const calcKD = (k, d) => {
-      if (!k || !d || d === 0) return null;
-      return (k / d).toFixed(2);
-    };
-
-    const getRankName = (rank) => {
-      if (rank === null || rank === undefined) return "UNRANKED";
-      if (rank >= 25) return "CHAMPION";
-      if (rank >= 20) return "DIAMOND";
-      if (rank >= 15) return "EMERALD";
-      if (rank >= 10) return "PLATINUM";
-      if (rank >= 5) return "GOLD";
-      return "SILVER";
-    };
+    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     /* ============================= */
     /* 🔥 OUTPUT */
-    /* ============================= */
-
+/* ============================= */
     const ranked = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
 
-      kills: rankedStats?.kills ?? rankedProfile?.kills,
-      deaths: rankedStats?.deaths ?? rankedProfile?.deaths,
+      kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
+      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
       kd: calcKD(
-        rankedStats?.kills ?? rankedProfile?.kills,
-        rankedStats?.deaths ?? rankedProfile?.deaths
+        rankedStats.kills ?? rankedProfile.kills,
+        rankedStats.deaths ?? rankedProfile.deaths
       ),
 
-      wins: rankedStats?.match_outcomes?.wins ?? rankedProfile?.wins,
-      losses: rankedStats?.match_outcomes?.losses ?? rankedProfile?.losses,
+      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
+      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
 
-      rank: getRankName(rankedProfile?.rank),
-      mmr: rankedProfile?.rank_points ?? 0,
+      rank: getRankName(rankedProfile.rank),
+      mmr: rankedProfile.rank_points ?? 0,
 
-      /* 🔥 NEU: PEAK RANK */
-bestRank: bestRank?.rank || null,
-bestMMR: bestRank?.mmr || null,
-bestRankImg: bestRank?.image || null,
-bestRankColor: bestRank?.color || null
+      bestRank: bestRank?.rank,
+      bestMMR: bestRank?.mmr,
+      bestRankImg: bestRank?.image,
+      bestRankColor: bestRank?.color
     };
 
     const casual = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
 
-      kills: casualStats?.kills ?? casualProfile?.kills,
-      deaths: casualStats?.deaths ?? casualProfile?.deaths,
+      kills: casualStats.kills ?? casualProfile.kills ?? 0,
+      deaths: casualStats.deaths ?? casualProfile.deaths ?? 0,
       kd: calcKD(
-        casualStats?.kills ?? casualProfile?.kills,
-        casualStats?.deaths ?? casualProfile?.deaths
+        casualStats.kills ?? casualProfile.kills,
+        casualStats.deaths ?? casualProfile.deaths
       ),
 
-      wins: casualStats?.match_outcomes?.wins ?? casualProfile?.wins,
-      losses: casualStats?.match_outcomes?.losses ?? casualProfile?.losses,
+      wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
+      losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
 
       rank: "UNRANKED",
       mmr: null
     };
 
     res.setHeader("Cache-Control", "no-store");
-
     res.json({ ranked, casual });
 
   } catch (err) {
     console.error("❌ BACKEND CRASH:", err);
-
-    res.status(500).json({
-      error: "Server error",
-      details: err.message
-    });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
