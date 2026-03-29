@@ -134,36 +134,31 @@ app.get("/api/stats", async (req, res) => {
     /* ============================= */
     /* PEAK (Richtig über MMR) */
     /* ============================= */
-    const peakMMR =
-      rankedProfile.max_rank_points ?? rankedProfile.rank_points ?? 0;
+const peakMMR = rankedProfile.max_rank_points ?? rankedProfile.rank_points ?? 0;
+const peakRank = getRankFromMMR(peakMMR);
 
-    const peakRank = getRankFromMMR(peakMMR);
+const ranked = {
+  username: nameOnPlatform,
+  platform: apiPlatform.toUpperCase(),
 
-    /* ============================= */
-    /* OUTPUT */
-    /* ============================= */
-    const ranked = {
-      username: nameOnPlatform,
-      platform: apiPlatform.toUpperCase(),
+  kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
+  deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
+  kd: calcKD(
+    rankedStats.kills ?? rankedProfile.kills,
+    rankedStats.deaths ?? rankedProfile.deaths
+  ),
 
-      kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
-      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
-      kd: calcKD(
-        rankedStats.kills ?? rankedProfile.kills,
-        rankedStats.deaths ?? rankedProfile.deaths
-      ),
+  wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
+  losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
 
-      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
-      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
+  rank: getRankName(rankedProfile.rank),
+  mmr: rankedProfile.rank_points ?? 0,
 
-      rank: getRankName(rankedProfile.rank),
-      mmr: rankedProfile.rank_points ?? 0,
-
-      bestRank: peakRank.name,
-      bestMMR: peakMMR,
-      bestRankImg: null,
-      bestRankColor: peakRank.color,
-    };
+  bestRank: peakRank.name,
+  bestMMR: peakMMR,
+  bestRankImg: null,
+  bestRankColor: peakRank.color,
+};
 
     const casual = {
       username: nameOnPlatform,
