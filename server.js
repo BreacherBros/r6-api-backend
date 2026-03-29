@@ -38,6 +38,65 @@ app.get("/", (req, res) => {
 
 const API_KEY = process.env.API_KEY;
 
+/* ============================= */
+/* CACHE */
+/* ============================= */
+const CACHE_TTL_MS = 30_000;
+const cache = new Map();
+
+function getCache(key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+
+  return entry.value;
+}
+
+function setCache(key, value) {
+  cache.set(key, {
+    value,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
+async function fetchJsonCached(url, cacheKey) {
+  const cached = getCache(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const response = await fetch(url, {
+      headers: { "api-key": API_KEY },
+    });
+
+    const json = await response.json().catch(() => null);
+
+    const result = {
+      ok: response.ok,
+      status: response.status,
+      json,
+    };
+
+    setCache(cacheKey, result);
+    return result;
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      json: null,
+      error,
+    };
+  }
+}
+
+/* ============================= */
+/* PLATFORM MAP */
+/* ============================= */
 const PLATFORM_MAP = {
   psn: "psn",
   xbox: "xbl",
@@ -60,7 +119,7 @@ const calcKD = (k, d) => {
   return (k / d).toFixed(2);
 };
 
-/* Current-rank mapping wie Frontend */
+/* Rank-System wie dein Frontend */
 const getRankFromMMR = (mmr) => {
   if (!mmr || mmr <= 0) return { name: "UNRANKED", color: "#888" };
 
@@ -95,29 +154,6 @@ const firstString = (...values) => {
   }
   return null;
 };
-
-async function fetchJson(url) {
-  try {
-    const response = await fetch(url, {
-      headers: { "api-key": API_KEY },
-    });
-
-    const json = await response.json().catch(() => null);
-
-    return {
-      ok: response.ok,
-      status: response.status,
-      json,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      json: null,
-      error,
-    };
-  }
-}
 
 function parseBoardProfiles(statsJson) {
   const root = statsJson?.platform_families_full_profiles?.[0];
@@ -156,79 +192,121 @@ function normalizeHistoryArray(historyJson) {
 /* ============================= */
 /* PEAK EXTRACTION */
 /* ============================= */
-/*
-  Ziel:
-  - History-Einträge mit metadata.rank bevorzugen
-  - MMR als Sortierwert nehmen
-  - bei fehlendem Rank-Text nur dann auf MMR-Mapping zurückfallen
-*/
 function extractPeakCandidate(source) {
-  const historyArray = normalizeHistoryArray(source);
-  if (!historyArray.length) return null;
+  if (!source) return null;
 
-  let best = null;
+  const candidates = [];
 
-  for (const entry of historyArray) {
-    const payload = Array.isArray(entry) ? entry?.[1] : entry;
-    if (!payload || typeof payload !== "object") continue;
+  const pushCandidate = (mmr, meta = {}) => {
+    if (!Number.isFinite(mmr) || mmr <= 0) return;
+    candidates.push({
+      mmr,
+      rank: firstString(meta.rank),
+      color: firstString(meta.color),
+      image: firstString(meta.image),
+    });
+  };
 
-    const mmr =
-      payload?.value ??
-      payload?.mmr ??
-      payload?.rank_points ??
-      payload?.rankPoints ??
-      payload?.max_rank_points ??
-      payload?.max_mmr ??
-      payload?.peak_mmr ??
-      payload?.elo ??
-      null;
+  const scanHistoryArray = (historyArray) => {
+    for (const entry of historyArray) {
+      const payload = Array.isArray(entry) ? entry?.[1] : entry;
+      if (!payload || typeof payload !== "object") continue;
 
-    if (!Number.isFinite(mmr)) continue;
+      const mmr =
+        payload?.value ??
+        payload?.mmr ??
+        payload?.rank_points ??
+        payload?.rankPoints ??
+        payload?.max_rank_points ??
+        payload?.max_mmr ??
+        payload?.peak_mmr ??
+        payload?.elo ??
+        null;
 
-    const label = firstString(
-      payload?.metadata?.rank,
-      payload?.rank,
-      payload?.rank_name,
-      payload?.rankName
-    );
+      if (!Number.isFinite(mmr)) continue;
 
-    const color = firstString(
-      payload?.metadata?.color,
-      payload?.color
-    );
+      const rankLabel = firstString(
+        payload?.metadata?.rank,
+        payload?.rank,
+        payload?.rank_name,
+        payload?.rankName
+      );
 
-    const image = firstString(
-      payload?.metadata?.imageUrl,
-      payload?.imageUrl,
-      payload?.image
-    );
-
-    if (!best || mmr > best.mmr) {
-      best = {
-        mmr,
-        rank: label,
-        color,
-        image,
-      };
+      pushCandidate(mmr, {
+        rank: rankLabel,
+        color: payload?.metadata?.color ?? payload?.color,
+        image: payload?.metadata?.imageUrl ?? payload?.imageUrl ?? payload?.image,
+      });
     }
+  };
+
+  const scanBoards = (statsJson) => {
+    const root = statsJson?.platform_families_full_profiles?.[0];
+    const boards = root?.board_ids_full_profiles || [];
+
+    for (const board of boards) {
+      if (!["pvp_ranked", "ranked"].includes(board.board_id)) continue;
+
+      for (const season of board.full_profiles || []) {
+        const profile = season?.profile || {};
+
+        const mmr =
+          profile?.max_rank_points ??
+          profile?.max_mmr ??
+          profile?.rank_points ??
+          profile?.rankPoints ??
+          null;
+
+        if (!Number.isFinite(mmr)) continue;
+
+        pushCandidate(mmr, {
+          rank: firstString(
+            profile?.max_rank_name,
+            profile?.maxRankName,
+            profile?.max_rank,
+            profile?.rank_name,
+            profile?.rankName
+          ),
+          color: profile?.color ?? null,
+          image: profile?.imageUrl ?? null,
+        });
+      }
+    }
+  };
+
+  if (
+    Array.isArray(source) ||
+    Array.isArray(source?.data?.history?.data) ||
+    Array.isArray(source?.data?.history) ||
+    Array.isArray(source?.history?.data) ||
+    Array.isArray(source?.history)
+  ) {
+    scanHistoryArray(normalizeHistoryArray(source));
+  } else if (source?.platform_families_full_profiles) {
+    scanBoards(source);
+  } else if (source?.board_ids_full_profiles) {
+    scanBoards({ platform_families_full_profiles: [{ board_ids_full_profiles: source.board_ids_full_profiles }] });
   }
 
-  return best;
+  candidates.sort((a, b) => b.mmr - a.mmr);
+  return candidates[0] || null;
 }
 
 function getBestPeakFromBundles(bundles) {
   let best = null;
 
   for (const bundle of bundles) {
-    const candidates = [
-      extractPeakCandidate(bundle?.historyJson),
-      extractPeakCandidate(bundle?.seasonalJson),
-      extractPeakCandidate(bundle?.statsJson),
-    ].filter(Boolean);
+    const sources = [bundle?.historyJson, bundle?.seasonalJson, bundle?.statsJson];
 
-    for (const candidate of candidates) {
+    for (const source of sources) {
+      const candidate = extractPeakCandidate(source);
+      if (!candidate) continue;
+
       if (!best || candidate.mmr > best.mmr) {
-        best = candidate;
+        best = {
+          ...candidate,
+          platform: bundle?.platformType || null,
+        };
       }
     }
   }
@@ -275,19 +353,30 @@ app.get("/api/stats", async (req, res) => {
       )}&platformType=${plat}`;
 
     /* ============================= */
-    /* FETCH ALL PLATFORMS */
+    /* FAST PARALLEL FETCH */
     /* ============================= */
     const bundles = await Promise.all(
       PLATFORM_PROBES.map(async ({ platformType: plat }) => {
         const [statsResp, seasonalResp, historyResp] = await Promise.all([
-          fetchJson(buildStatsUrl(plat)),
-          fetchJson(buildSeasonalUrl(plat)),
-          fetchJson(buildHistoryUrl(plat)),
+          fetchJsonCached(
+            buildStatsUrl(plat),
+            `stats:${nameOnPlatform}:${plat}:${family}`
+          ),
+          fetchJsonCached(
+            buildSeasonalUrl(plat),
+            `seasonal:${nameOnPlatform}:${plat}:${family}`
+          ),
+          fetchJsonCached(
+            buildHistoryUrl(plat),
+            `history:${nameOnPlatform}:${plat}`
+          ),
         ]);
 
         return {
           platformType: plat,
           statsOk: statsResp.ok,
+          seasonalOk: seasonalResp.ok,
+          historyOk: historyResp.ok,
           statsJson: statsResp.json,
           seasonalJson: seasonalResp.json,
           historyJson: historyResp.json,
@@ -297,12 +386,15 @@ app.get("/api/stats", async (req, res) => {
 
     const selectedBundle = bundles.find((b) => b.platformType === apiPlatform);
 
-    if (!selectedBundle?.statsOk || !selectedBundle.statsJson?.platform_families_full_profiles) {
+    if (
+      !selectedBundle?.statsOk ||
+      !selectedBundle.statsJson?.platform_families_full_profiles
+    ) {
       return res.json({ ranked: null, casual: null });
     }
 
     /* ============================= */
-    /* CURRENT DATA (SELECTED PLATFORM) */
+    /* CURRENT DATA (selected platform) */
     /* ============================= */
     const {
       rankedProfile,
@@ -314,7 +406,7 @@ app.get("/api/stats", async (req, res) => {
     const currentRank = getRankFromMMR(rankedProfile.rank_points ?? 0);
 
     /* ============================= */
-    /* PEAK (ACROSS ALL PLATFORMS + HISTORY FIRST) */
+    /* PEAK (all platforms, history first) */
     /* ============================= */
     let peakCandidate = getBestPeakFromBundles(bundles);
 
@@ -330,16 +422,16 @@ app.get("/api/stats", async (req, res) => {
           rank: null,
           color: null,
           image: null,
+          platform: apiPlatform,
         };
       }
     }
 
     const peakMMR = peakCandidate?.mmr ?? null;
-    const peakRankMeta = peakCandidate?.rank ?? null;
-    const peakRankFromMMR = peakMMR ? getRankFromMMR(peakMMR) : { name: "UNRANKED", color: "#888" };
+    const peakFromMMR = peakMMR ? getRankFromMMR(peakMMR) : { name: "UNRANKED", color: "#888" };
 
-    const bestRank = peakRankMeta || peakRankFromMMR.name;
-    const bestRankColor = peakCandidate?.color || peakRankFromMMR.color;
+    const bestRank = peakCandidate?.rank || peakFromMMR.name;
+    const bestRankColor = peakCandidate?.color || peakFromMMR.color;
     const bestRankImg = peakCandidate?.image || null;
 
     /* ============================= */
