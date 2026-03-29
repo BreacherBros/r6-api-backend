@@ -141,9 +141,9 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${apiPlatform}`;
+  const historyUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
+  nameOnPlatform
+)}&platformType=${apiPlatform}`;
 
     const [statsRes, historyRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
