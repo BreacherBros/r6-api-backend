@@ -47,12 +47,14 @@ function getHighestRank(historyArray) {
   let best = null;
 
   for (const entry of historyArray) {
+    const payload = Array.isArray(entry) ? entry[1] : entry?.payload ?? entry?.data ?? entry;
+
     const value =
-      entry?.value ??
-      entry?.mmr ??
-      entry?.rank_points ??
-      entry?.rankPoints ??
-      entry?.rating;
+      payload?.value ??
+      payload?.mmr ??
+      payload?.rank_points ??
+      payload?.rankPoints ??
+      payload?.rating;
 
     if (typeof value !== "number") continue;
 
@@ -60,12 +62,12 @@ function getHighestRank(historyArray) {
       best = {
         mmr: value,
         rank:
-          entry?.metadata?.rank ||
-          entry?.rank ||
-          entry?.rank_name ||
+          payload?.metadata?.rank ||
+          payload?.rank ||
+          payload?.rank_name ||
           "UNKNOWN",
-        image: entry?.metadata?.imageUrl || null,
-        color: entry?.metadata?.color || "#fff",
+        image: payload?.metadata?.imageUrl || null,
+        color: payload?.metadata?.color || "#fff",
       };
     }
   }
