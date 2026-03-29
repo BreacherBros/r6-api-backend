@@ -147,7 +147,7 @@ app.get("/api/stats", async (req, res) => {
 
     const [statsRes, historyRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
-      fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null),
+    fetch(historyUrl, { headers: { "api-key": API_KEY } })
     ]);
 
     const statsData = await statsRes.json();
@@ -161,18 +161,23 @@ app.get("/api/stats", async (req, res) => {
     /* ============================= */
     let bestRank = null;
 
-    if (historyRes) {
-      try {
-        console.log("🔥 HISTORY STATUS:", historyRes?.status);
-        const historyJson = await historyRes.json();
-        console.log("🔥 RAW HISTORY FULL:", JSON.stringify(historyJson, null, 2));
+  if (historyRes && historyRes.ok) {
+  try {
+    const historyJson = await historyRes.json();
 
-        bestRank = getHighestRank(historyJson);
-        console.log("🔥 PEAK:", bestRank);
-      } catch (e) {
-        console.log("⚠️ History parsing failed:", e?.message || e);
-      }
-    }
+    console.log("🔥 HISTORY JSON:", JSON.stringify(historyJson, null, 2));
+
+    bestRank = getHighestRank(historyJson);
+
+    console.log("🔥 PEAK:", bestRank);
+  } catch (e) {
+    console.log("⚠️ History parsing failed:", e);
+  }
+} else {
+  console.log("❌ HISTORY REQUEST FAILED:", historyRes?.status);
+}
+
+     
 
     /* ============================= */
     /* PARSE DATA */
