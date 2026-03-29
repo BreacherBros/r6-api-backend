@@ -39,7 +39,7 @@ const API_KEY = process.env.API_KEY;
 /* HELPERS */
 /* ============================= */
 const calcKD = (k, d) => {
-  if (k == null || d == null || d === 0) return null;
+  if (!k || !d || d === 0) return null;
   return (k / d).toFixed(2);
 };
 
@@ -53,7 +53,6 @@ const getRankName = (rank) => {
   return "SILVER";
 };
 
-/* 🔥 WICHTIG: Rank aus MMR berechnen */
 const getRankFromMMR = (mmr) => {
   if (!mmr) return { name: "UNRANKED", color: "#888" };
 
@@ -101,18 +100,27 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    const statsRes = await fetch(statsUrl, {
-      headers: { "api-key": API_KEY },
-    });
+    const rankUrl = `https://r6data.eu/api/ranks?nameOnPlatform=${encodeURIComponent(
+      nameOnPlatform
+    )}&platformType=${apiPlatform}`;
+
+    /* 🔥 WICHTIG: beide Requests */
+    const [statsRes, rankRes] = await Promise.all([
+      fetch(statsUrl, { headers: { "api-key": API_KEY } }),
+      fetch(rankUrl, { headers: { "api-key": API_KEY } }),
+    ]);
 
     const statsData = await statsRes.json();
+    const rankData = await rankRes.json();
+
+    console.log("🔥 RANK DATA:", rankData);
 
     if (!statsRes.ok || !statsData?.platform_families_full_profiles) {
       return res.json({ ranked: null, casual: null });
     }
 
     /* ============================= */
-    /* PARSE DATA */
+    /* PARSE */
     /* ============================= */
     const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -132,33 +140,40 @@ app.get("/api/stats", async (req, res) => {
     const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     /* ============================= */
-    /* PEAK (Richtig über MMR) */
+    /* 🔥 PEAK (ECHT FIX) */
     /* ============================= */
-const peakMMR = rankedProfile.max_rank_points ?? rankedProfile.rank_points ?? 0;
-const peakRank = getRankFromMMR(peakMMR);
+    let peakMMR = null;
 
-const ranked = {
-  username: nameOnPlatform,
-  platform: apiPlatform.toUpperCase(),
+    if (Array.isArray(rankData?.data)) {
+      peakMMR = Math.max(...rankData.data.map(r => r.max_mmr || 0));
+    }
 
-  kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
-  deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
-  kd: calcKD(
-    rankedStats.kills ?? rankedProfile.kills,
-    rankedStats.deaths ?? rankedProfile.deaths
-  ),
+    const peakRank = getRankFromMMR(peakMMR);
 
-  wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
-  losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
+    /* ============================= */
+    /* OUTPUT */
+    /* ============================= */
+    const ranked = {
+      username: nameOnPlatform,
+      platform: apiPlatform.toUpperCase(),
 
-  rank: getRankName(rankedProfile.rank),
-  mmr: rankedProfile.rank_points ?? 0,
+      kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
+      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
+      kd: calcKD(
+        rankedStats.kills ?? rankedProfile.kills,
+        rankedStats.deaths ?? rankedProfile.deaths
+      ),
 
-  bestRank: peakRank.name,
-  bestMMR: peakMMR,
-  bestRankImg: null,
-  bestRankColor: peakRank.color,
-};
+      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
+      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
+
+      rank: getRankName(rankedProfile.rank),
+      mmr: rankedProfile.rank_points ?? 0,
+
+      bestRank: peakRank.name,
+      bestMMR: peakMMR,
+      bestRankColor: peakRank.color,
+    };
 
     const casual = {
       username: nameOnPlatform,
@@ -180,14 +195,13 @@ const ranked = {
 
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
+
   } catch (err) {
     console.error("❌ BACKEND CRASH:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-/* ============================= */
-/* START */
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
