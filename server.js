@@ -136,6 +136,7 @@ app.get("/api/stats", async (req, res) => {
     if (historyRes) {
       try {
         const historyJson = await historyRes.json();
+        console.log("🔥 RAW HISTORY FULL:", JSON.stringify(historyJson, null, 2));
 
         const historyArray =
           historyJson?.data?.history?.data ||
