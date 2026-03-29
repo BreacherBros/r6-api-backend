@@ -232,23 +232,31 @@ app.get("/api/stats", async (req, res) => {
     /* ============================= */
     /* PEAK FROM SEASONAL STATS */
     /* ============================= */
-    const peakCandidate =
-      extractPeakCandidate(seasonalData) || extractPeakCandidate(statsData);
+let peakMMR = 0;
 
-    const peakMMR =
-      peakCandidate?.mmr ??
-      rankedProfile.max_rank_points ??
-      rankedProfile.max_mmr ??
-      rankedProfile.rank_points ??
-      null;
+const seasonalBoards =
+  seasonalData?.platform_families_full_profiles?.[0]
+    ?.board_ids_full_profiles || [];
 
-    const peakRank = peakCandidate?.rank
-      ? peakCandidate.rank
-      : getRankFromMMR(peakMMR).name;
+for (const board of seasonalBoards) {
+  if (!["pvp_ranked", "ranked"].includes(board.board_id)) continue;
 
-    const peakColor =
-      peakCandidate?.color || getRankFromMMR(peakMMR).color || null;
+  for (const season of board.full_profiles || []) {
+    const profile = season.profile;
 
+    const mmr =
+      profile?.max_rank_points ??
+      profile?.rank_points ??
+      0;
+
+    if (mmr > peakMMR) {
+      peakMMR = mmr;
+    }
+  }
+}
+
+const peakRank = getRankFromMMR(peakMMR);
+    console.log("🔥 SEASONAL:", JSON.stringify(seasonalData, null, 2));
     /* ============================= */
     /* OUTPUT */
     /* ============================= */
