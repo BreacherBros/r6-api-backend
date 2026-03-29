@@ -7,7 +7,7 @@ import tiktokRoutes from "./tiktok.js";
 const app = express();
 
 /* ============================= */
-/* CORS */
+/* 🔥 CORS */
 /* ============================= */
 app.use(
   cors({
@@ -39,7 +39,7 @@ app.get("/", (req, res) => {
 const API_KEY = process.env.API_KEY;
 
 /* ============================= */
-/* PEAK FUNCTION */
+/* 🔥 PEAK FUNCTION (FIXED) */
 /* ============================= */
 function getHighestRank(historyArray) {
   if (!Array.isArray(historyArray) || historyArray.length === 0) return null;
@@ -47,27 +47,19 @@ function getHighestRank(historyArray) {
   let best = null;
 
   for (const entry of historyArray) {
-    const payload = Array.isArray(entry) ? entry[1] : entry?.payload ?? entry?.data ?? entry;
+    // 👉 r6data Struktur: [timestamp, payload]
+    const payload = Array.isArray(entry) ? entry[1] : entry;
 
-    const value =
-      payload?.value ??
-      payload?.mmr ??
-      payload?.rank_points ??
-      payload?.rankPoints ??
-      payload?.rating;
+    const value = payload?.value;
 
     if (typeof value !== "number") continue;
 
     if (!best || value > best.mmr) {
       best = {
         mmr: value,
-        rank:
-          payload?.metadata?.rank ||
-          payload?.rank ||
-          payload?.rank_name ||
-          "UNKNOWN",
+        rank: payload?.metadata?.rank || "UNKNOWN",
         image: payload?.metadata?.imageUrl || null,
-        color: payload?.metadata?.color || "#fff",
+        color: payload?.metadata?.color || "#ffd700",
       };
     }
   }
@@ -76,7 +68,7 @@ function getHighestRank(historyArray) {
 }
 
 /* ============================= */
-/* HELPERS */
+/* 🔥 HELPERS */
 /* ============================= */
 const calcKD = (k, d) => {
   if (k == null || d == null || d === 0) return null;
@@ -94,19 +86,16 @@ const getRankName = (rank) => {
 };
 
 function extractHistoryArray(historyJson) {
-  if (!historyJson) return [];
-
-  if (Array.isArray(historyJson)) return historyJson;
-  if (Array.isArray(historyJson.data)) return historyJson.data;
-  if (Array.isArray(historyJson.history)) return historyJson.history;
-  if (Array.isArray(historyJson.data?.history)) return historyJson.data.history;
-  if (Array.isArray(historyJson.data?.history?.data)) return historyJson.data.history.data;
-
-  return [];
+  return (
+    historyJson?.data?.history?.data ||
+    historyJson?.history?.data ||
+    historyJson?.data ||
+    []
+  );
 }
 
 /* ============================= */
-/* API */
+/* 🔥 API */
 /* ============================= */
 app.get("/api/stats", async (req, res) => {
   try {
@@ -137,15 +126,17 @@ app.get("/api/stats", async (req, res) => {
 
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
-    )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
+    )}&platformType=${apiPlatform}&platform_families=${
+      isPC ? "pc" : "console"
+    }`;
 
     const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
     )}&platformType=${apiPlatform}`;
 
     /* ============================= */
-    /* PARALLEL FETCH */
-    /* ============================= */
+    /* 🔥 FETCH */
+/* ============================= */
     const [statsRes, historyRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
       fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null),
@@ -158,28 +149,27 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* ============================= */
-    /* PEAK FIX */
-    /* ============================= */
+    /* 🔥 PEAK */
+/* ============================= */
     let bestRank = null;
 
     if (historyRes) {
       try {
         const historyJson = await historyRes.json();
-        console.log("🔥 RAW HISTORY FULL:", JSON.stringify(historyJson, null, 2));
 
         const historyArray = extractHistoryArray(historyJson);
-        console.log("🔥 PARSED HISTORY:", historyArray);
 
         bestRank = getHighestRank(historyArray);
-        console.log("🔥 PEAK:", bestRank);
+
+        console.log("🔥 PEAK RESULT:", bestRank);
       } catch (e) {
-        console.log("⚠️ History parsing failed:", e?.message || e);
+        console.log("⚠️ History parsing failed");
       }
     }
 
     /* ============================= */
-    /* PARSE DATA */
-    /* ============================= */
+    /* 🔥 PARSE STATS */
+/* ============================= */
     const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
 
@@ -192,14 +182,16 @@ app.get("/api/stats", async (req, res) => {
     );
 
     const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || {};
-    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || {};
+    const rankedStats =
+      rankedBoard?.full_profiles?.[0]?.season_statistics || {};
 
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
-    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
+    const casualStats =
+      casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     /* ============================= */
-    /* OUTPUT */
-    /* ============================= */
+    /* 🔥 OUTPUT */
+/* ============================= */
     const ranked = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
@@ -217,11 +209,11 @@ app.get("/api/stats", async (req, res) => {
       rank: getRankName(rankedProfile.rank),
       mmr: rankedProfile.rank_points ?? 0,
 
-      /* Peak */
+      /* 🔥 PEAK */
       bestRank: bestRank?.rank || null,
       bestMMR: bestRank?.mmr || null,
       bestRankImg: bestRank?.image || null,
-      bestRankColor: bestRank?.color || null,
+      bestRankColor: bestRank?.color || "#ffd700",
     };
 
     const casual = {
@@ -251,7 +243,7 @@ app.get("/api/stats", async (req, res) => {
 });
 
 /* ============================= */
-/* START */
+/* 🔥 START */
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
