@@ -6,6 +6,9 @@ import tiktokRoutes from "./tiktok.js";
 
 const app = express();
 
+/* ============================= */
+/* CORS */
+/* ============================= */
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -43,7 +46,7 @@ const calcKD = (k, d) => {
   return (k / d).toFixed(2);
 };
 
-/* Rank-Mapping passend zu deinem Frontend */
+/* Rank System wie dein Frontend */
 const getRankFromMMR = (mmr) => {
   if (!mmr || mmr <= 0) return { name: "UNRANKED", color: "#888" };
 
@@ -71,83 +74,6 @@ const getRankFromMMR = (mmr) => {
     color: tiers[tierIndex].color,
   };
 };
-
-/* ============================= */
-/* PEAK EXTRACTION */
-/* ============================= */
-function extractPeakCandidate(source) {
-  const candidates = [];
-  const seen = new WeakSet();
-
-  const numericKeys = [
-    "max_rank_points",
-    "maxRankPoints",
-    "max_mmr",
-    "maxMmr",
-    "peak_mmr",
-    "peakMmr",
-    "seasonMaxMmr",
-    "season_max_mmr",
-    "rank_points",
-    "rankPoints",
-    "mmr",
-    "elo",
-  ];
-
-  function walk(node) {
-    if (!node || typeof node !== "object") return;
-    if (seen.has(node)) return;
-    seen.add(node);
-
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
-
-    let value = null;
-    let hasRankishField = false;
-
-    for (const key of numericKeys) {
-      if (Object.prototype.hasOwnProperty.call(node, key)) {
-        hasRankishField = true;
-        const v = node[key];
-        if (typeof v === "number" && Number.isFinite(v)) {
-          value = v;
-          break;
-        }
-      }
-    }
-
-    if (hasRankishField && value !== null) {
-      const label =
-        typeof node?.metadata?.rank === "string"
-          ? node.metadata.rank
-          : typeof node?.rank_name === "string"
-          ? node.rank_name
-          : typeof node?.rankName === "string"
-          ? node.rankName
-          : typeof node?.rank === "string"
-          ? node.rank
-          : null;
-
-      candidates.push({
-        mmr: value,
-        rank: label,
-        color: node?.metadata?.color || node?.color || null,
-        image: node?.metadata?.imageUrl || node?.imageUrl || null,
-      });
-    }
-
-    for (const child of Object.values(node)) {
-      if (child && typeof child === "object") walk(child);
-    }
-  }
-
-  walk(source);
-
-  candidates.sort((a, b) => b.mmr - a.mmr);
-  return candidates[0] || null;
-}
 
 /* ============================= */
 /* API */
@@ -181,12 +107,17 @@ app.get("/api/stats", async (req, res) => {
 
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
-    )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
+    )}&platformType=${apiPlatform}&platform_families=${
+      isPC ? "pc" : "console"
+    }`;
 
     const seasonalUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
-    )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
+    )}&platformType=${apiPlatform}&platform_families=${
+      isPC ? "pc" : "console"
+    }`;
 
+    /* 🔥 BEIDE REQUESTS */
     const [statsRes, seasonalRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
       fetch(seasonalUrl, { headers: { "api-key": API_KEY } }).catch(() => null),
@@ -198,7 +129,7 @@ app.get("/api/stats", async (req, res) => {
     if (seasonalRes && seasonalRes.ok) {
       try {
         seasonalData = await seasonalRes.json();
-      } catch (e) {
+      } catch {
         seasonalData = null;
       }
     }
@@ -208,7 +139,7 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* ============================= */
-    /* CURRENT SEASON PARSE */
+    /* CURRENT SEASON */
     /* ============================= */
     const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -222,41 +153,53 @@ app.get("/api/stats", async (req, res) => {
     );
 
     const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || {};
-    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || {};
+    const rankedStats =
+      rankedBoard?.full_profiles?.[0]?.season_statistics || {};
 
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
-    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
+    const casualStats =
+      casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
-    const currentRank = getRankFromMMR(rankedProfile.rank_points ?? 0);
+    const currentRank = getRankFromMMR(
+      rankedProfile.rank_points ?? 0
+    );
 
     /* ============================= */
-    /* PEAK FROM SEASONAL STATS */
+    /* 🔥 PEAK SYSTEM (FINAL FIX) */
     /* ============================= */
-let peakMMR = 0;
+    let peakMMR = 0;
 
-const seasonalBoards =
-  seasonalData?.platform_families_full_profiles?.[0]
-    ?.board_ids_full_profiles || [];
+    const seasonalBoards =
+      seasonalData?.platform_families_full_profiles?.[0]
+        ?.board_ids_full_profiles || [];
 
-for (const board of seasonalBoards) {
-  if (!["pvp_ranked", "ranked"].includes(board.board_id)) continue;
+    for (const board of seasonalBoards) {
+      if (!["pvp_ranked", "ranked"].includes(board.board_id)) continue;
 
-  for (const season of board.full_profiles || []) {
-    const profile = season.profile;
+      for (const season of board.full_profiles || []) {
+        const profile = season.profile;
 
-    const mmr =
-      profile?.max_rank_points ??
-      profile?.rank_points ??
-      0;
+        const mmr =
+          profile?.max_rank_points ??
+          profile?.rank_points ??
+          0;
 
-    if (mmr > peakMMR) {
-      peakMMR = mmr;
+        if (mmr > peakMMR) {
+          peakMMR = mmr;
+        }
+      }
     }
-  }
-}
 
-const peakRank = getRankFromMMR(peakMMR);
-    console.log("🔥 SEASONAL:", JSON.stringify(seasonalData, null, 2));
+    /* 🔥 FALLBACK */
+    if (!peakMMR) {
+      peakMMR =
+        rankedProfile?.max_rank_points ??
+        rankedProfile?.rank_points ??
+        0;
+    }
+
+    const peakRank = getRankFromMMR(peakMMR);
+
     /* ============================= */
     /* OUTPUT */
     /* ============================= */
@@ -271,16 +214,22 @@ const peakRank = getRankFromMMR(peakMMR);
         rankedStats.deaths ?? rankedProfile.deaths
       ),
 
-      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
-      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
+      wins:
+        rankedStats.match_outcomes?.wins ??
+        rankedProfile.wins ??
+        0,
+      losses:
+        rankedStats.match_outcomes?.losses ??
+        rankedProfile.losses ??
+        0,
 
       rank: currentRank.name,
       mmr: rankedProfile.rank_points ?? 0,
 
-      bestRank: peakRank,
+      /* 🔥 FINAL PEAK */
+      bestRank: peakRank.name,
       bestMMR: peakMMR,
-      bestRankImg: peakCandidate?.image || null,
-      bestRankColor: peakColor,
+      bestRankColor: peakRank.color,
     };
 
     const casual = {
@@ -294,8 +243,14 @@ const peakRank = getRankFromMMR(peakMMR);
         casualStats.deaths ?? casualProfile.deaths
       ),
 
-      wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
-      losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
+      wins:
+        casualStats.match_outcomes?.wins ??
+        casualProfile.wins ??
+        0,
+      losses:
+        casualStats.match_outcomes?.losses ??
+        casualProfile.losses ??
+        0,
 
       rank: "UNRANKED",
       mmr: null,
@@ -306,6 +261,7 @@ const peakRank = getRankFromMMR(peakMMR);
 
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
+
   } catch (err) {
     console.error("❌ BACKEND CRASH:", err);
     res.status(500).json({ error: "Server error" });
