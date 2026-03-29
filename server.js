@@ -7,7 +7,7 @@ import tiktokRoutes from "./tiktok.js";
 const app = express();
 
 /* ============================= */
-/* CORS */
+/* 🔥 CORS */
 /* ============================= */
 app.use(
   cors({
@@ -16,13 +16,7 @@ app.use(
         "https://breacherbros.com",
         "https://www.breacherbros.com",
       ];
-
-      if (!origin || allowed.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Blocked by CORS:", origin);
-        callback(null, true);
-      }
+      callback(null, !origin || allowed.includes(origin));
     },
   })
 );
@@ -36,15 +30,12 @@ app.get("/", (req, res) => {
 });
 
 const API_KEY = process.env.API_KEY;
-if (!API_KEY) {
-  console.error("❌ ERROR: API_KEY is not set.");
-}
 
 /* ============================= */
-/* CACHE */
+/* 🔥 CACHE */
 /* ============================= */
 const CACHE = new Map();
-const CACHE_TTL_MS = 30_000;
+const TTL = 30000;
 
 function getCache(key) {
   const entry = CACHE.get(key);
@@ -61,7 +52,7 @@ function getCache(key) {
 function setCache(key, data) {
   CACHE.set(key, {
     data,
-    exp: Date.now() + CACHE_TTL_MS,
+    exp: Date.now() + TTL,
   });
 }
 
@@ -78,24 +69,18 @@ async function fetchCached(url, key) {
 
     const result = {
       ok: res.ok,
-      status: res.status,
       json,
     };
 
     setCache(key, result);
     return result;
-  } catch (err) {
-    console.error("❌ Fetch error:", err);
-    return {
-      ok: false,
-      status: 0,
-      json: null,
-    };
+  } catch {
+    return { ok: false, json: null };
   }
 }
 
 /* ============================= */
-/* PLATFORM MAP */
+/* 🔥 PLATFORM */
 /* ============================= */
 const PLATFORM_MAP = {
   psn: "psn",
@@ -106,39 +91,15 @@ const PLATFORM_MAP = {
 };
 
 /* ============================= */
-/* HELPERS */
+/* 🔥 HELPERS */
 /* ============================= */
-const calcKD = (kills, deaths) => {
-  if (kills == null || deaths == null || deaths === 0) return null;
-  return (kills / deaths).toFixed(2);
+const calcKD = (k, d) => {
+  if (!k || !d || d === 0) return null;
+  return (k / d).toFixed(2);
 };
 
-const RANK_TIERS = [
-  "COPPER",
-  "BRONZE",
-  "SILVER",
-  "GOLD",
-  "PLATINUM",
-  "EMERALD",
-  "DIAMOND",
-  "CHAMPION",
-];
-
-const RANK_COLORS = {
-  COPPER: "#a52019",
-  BRONZE: "#a97142",
-  SILVER: "#c0c0c0",
-  GOLD: "#ffd700",
-  PLATINUM: "#4fc3f7",
-  EMERALD: "#00ff88",
-  DIAMOND: "#00e5ff",
-  CHAMPION: "#ff0000",
-};
-
-function getRankFromMMR(mmr) {
-  if (mmr == null || mmr <= 0) {
-    return { name: "UNRANKED", color: "#888" };
-  }
+const getRankFromMMR = (mmr) => {
+  if (!mmr || mmr <= 0) return { name: "UNRANKED", color: "#888" };
 
   const tiers = [
     "COPPER",
@@ -162,103 +123,100 @@ function getRankFromMMR(mmr) {
 
   return {
     name: `${tiers[tierIndex]} ${division}`,
-    color: RANK_COLORS[tiers[tierIndex]] || "#fff",
+    color: "#fff",
   };
-}
+};
 
+/* ============================= */
+/* 🔥 RANK SCORE */
+/* ============================= */
 function parseRankLabel(label) {
-  if (typeof label !== "string") return null;
+  if (!label) return null;
 
-  const clean = label.trim().toUpperCase();
-  const match = clean.match(
-    /^(COPPER|BRONZE|SILVER|GOLD|PLATINUM|EMERALD|DIAMOND|CHAMPION)\s*([1-5])?$/
+  const m = label.toUpperCase().match(
+    /(COPPER|BRONZE|SILVER|GOLD|PLATINUM|EMERALD|DIAMOND|CHAMPION)\s?([1-5])?/
   );
 
-  if (!match) return null;
+  if (!m) return null;
 
   return {
-    tier: match[1],
-    division: match[2] ? Number(match[2]) : null,
+    tier: m[1],
+    division: m[2] ? Number(m[2]) : null,
   };
 }
 
-function rankScoreFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
+function rankScore(label, mmr) {
+  if (!label) label = getRankFromMMR(mmr).name;
 
-  const tierIndex = RANK_TIERS.indexOf(parsed.tier);
-  if (tierIndex < 0) return null;
+  const tiers = [
+    "COPPER",
+    "BRONZE",
+    "SILVER",
+    "GOLD",
+    "PLATINUM",
+    "EMERALD",
+    "DIAMOND",
+    "CHAMPION",
+  ];
+
+  const parsed = parseRankLabel(label);
+  if (!parsed) return 0;
+
+  const tierIndex = tiers.indexOf(parsed.tier);
+  if (tierIndex < 0) return 0;
 
   if (parsed.tier === "CHAMPION") return 1000;
 
   const divScore = parsed.division ? 5 - parsed.division : 0;
+
   return tierIndex * 10 + divScore;
 }
 
-function rankColorFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
-  return RANK_COLORS[parsed.tier] || null;
-}
-
-function firstString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
+/* ============================= */
+/* 🔥 PARSE STATS */
+/* ============================= */
 function parseStats(data) {
   const root = data?.platform_families_full_profiles?.[0];
   const boards = root?.board_ids_full_profiles || [];
 
-  const rankedBoard = boards.find((b) =>
+  const ranked = boards.find((b) =>
     ["pvp_ranked", "ranked"].includes(b.board_id)
   );
 
-  const casualBoard = boards.find((b) =>
+  const casual = boards.find((b) =>
     ["pvp_casual", "standard"].includes(b.board_id)
   );
 
   return {
-    rankedProfile: rankedBoard?.full_profiles?.[0]?.profile || {},
-    rankedStats: rankedBoard?.full_profiles?.[0]?.season_statistics || {},
-    casualProfile: casualBoard?.full_profiles?.[0]?.profile || {},
-    casualStats: casualBoard?.full_profiles?.[0]?.season_statistics || {},
+    rankedProfile: ranked?.full_profiles?.[0]?.profile || {},
+    rankedStats: ranked?.full_profiles?.[0]?.season_statistics || {},
+    casualProfile: casual?.full_profiles?.[0]?.profile || {},
+    casualStats: casual?.full_profiles?.[0]?.season_statistics || {},
   };
 }
 
-function extractHistoryArray(historyJson) {
-  if (!historyJson) return [];
-
-  if (Array.isArray(historyJson)) return historyJson;
-  if (Array.isArray(historyJson?.data?.history?.data)) return historyJson.data.history.data;
-  if (Array.isArray(historyJson?.data?.history)) return historyJson.data.history;
-  if (Array.isArray(historyJson?.history?.data)) return historyJson.history.data;
-  if (Array.isArray(historyJson?.history)) return historyJson.history;
-  if (Array.isArray(historyJson?.data)) return historyJson.data;
-
-  return [];
+/* ============================= */
+/* 🔥 HISTORY */
+/* ============================= */
+function extractHistory(historyJson) {
+  return (
+    historyJson?.data?.history?.data ||
+    historyJson?.history?.data ||
+    historyJson?.history ||
+    []
+  );
 }
 
 /* ============================= */
-/* PEAK LOGIC */
+/* 🔥 PEAK LOGIC (FINAL FIX) */
 /* ============================= */
-/*
-  Peak wird NUR für die gewählte Plattform berechnet.
-  Ranking-Logik:
-  - höheres Tier gewinnt
-  - bei gleichem Tier ist z.B. Emerald 2 besser als Emerald 5
-  - wenn kein Rank-Label vorhanden ist, wird MMR genutzt
-*/
 function getPeak(historyJson, statsJson, platform) {
   let best = null;
 
-  const check = (mmr, rank, color, image) => {
-    if (mmr == null || !Number.isFinite(mmr) || mmr <= 0) return;
+  const check = (mmr, rank) => {
+    if (!mmr || !Number.isFinite(mmr)) return;
 
-    const rankLabel = rank || getRankFromMMR(mmr).name;
-    const score = rankScoreFromLabel(rankLabel) ?? rankScoreFromLabel(getRankFromMMR(mmr).name) ?? 0;
+    const score = rankScore(rank, mmr);
 
     if (
       !best ||
@@ -267,54 +225,37 @@ function getPeak(historyJson, statsJson, platform) {
     ) {
       best = {
         mmr,
-        rank: rankLabel,
+        rank: rank || getRankFromMMR(mmr).name,
         score,
-        color: color || rankColorFromLabel(rankLabel) || getRankFromMMR(mmr).color,
-        image: image || null,
         platform,
       };
     }
   };
 
-  /* 1) HISTORY zuerst */
-  for (const entry of extractHistoryArray(historyJson)) {
-    const p = Array.isArray(entry) ? entry?.[1] : entry;
-    if (!p || typeof p !== "object") continue;
+  /* 🔥 HISTORY FIRST */
+  for (const entry of extractHistory(historyJson)) {
+    const p = Array.isArray(entry) ? entry[1] : entry;
 
     check(
-      p?.value ?? p?.mmr ?? p?.rank_points ?? null,
-      firstString(
-        p?.metadata?.rank,
-        p?.rank,
-        p?.rank_name,
-        p?.rankName
-      ),
-      p?.metadata?.color ?? p?.color ?? null,
-      p?.metadata?.imageUrl ?? p?.imageUrl ?? p?.image ?? null
+      p?.value ?? p?.mmr ?? p?.rank_points,
+      p?.metadata?.rank ?? p?.rank
     );
   }
 
-  /* 2) Fallback: statsJson */
+  /* 🔥 FALLBACK (nur wenn kein History Peak existiert) */
   if (!best) {
     const root = statsJson?.platform_families_full_profiles?.[0];
     const boards = root?.board_ids_full_profiles || [];
 
-    for (const board of boards) {
-      if (!["pvp_ranked", "ranked"].includes(board.board_id)) continue;
+    for (const b of boards) {
+      if (!["pvp_ranked", "ranked"].includes(b.board_id)) continue;
 
-      for (const season of board.full_profiles || []) {
-        const p = season?.profile || {};
+      for (const s of b.full_profiles || []) {
+        const p = s.profile;
+
         check(
-          p?.max_rank_points ?? p?.rank_points ?? null,
-          firstString(
-            p?.max_rank_name,
-            p?.maxRankName,
-            p?.max_rank,
-            p?.rank_name,
-            p?.rankName
-          ),
-          p?.color ?? null,
-          p?.imageUrl ?? null
+          p?.max_rank_points ?? p?.rank_points,
+          p?.max_rank_name ?? p?.rank_name
         );
       }
     }
@@ -324,7 +265,7 @@ function getPeak(historyJson, statsJson, platform) {
 }
 
 /* ============================= */
-/* API */
+/* 🔥 API */
 /* ============================= */
 app.get("/api/stats", async (req, res) => {
   try {
@@ -334,119 +275,54 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Missing parameters" });
     }
 
-    if (!API_KEY) {
-      return res.status(500).json({ error: "API KEY missing" });
-    }
-
-    const selectedPlatform = PLATFORM_MAP[platformType.toLowerCase()];
-    if (!selectedPlatform) {
+    const platform = PLATFORM_MAP[platformType.toLowerCase()];
+    if (!platform) {
       return res.status(400).json({ error: "Invalid platform" });
     }
 
-    const family = selectedPlatform === "uplay" ? "pc" : "console";
+    const family = platform === "uplay" ? "pc" : "console";
 
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
-    )}&platformType=${selectedPlatform}&platform_families=${family}`;
+    )}&platformType=${platform}&platform_families=${family}`;
 
     const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
-    )}&platformType=${selectedPlatform}`;
+    )}&platformType=${platform}`;
 
-    const seasonalUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${selectedPlatform}&platform_families=${family}`;
-
-    /* ============================= */
-    /* FETCH */
-    /* ============================= */
-    const [statsRes, historyRes, seasonalRes] = await Promise.all([
-      fetchCached(statsUrl, `stats-${nameOnPlatform}-${selectedPlatform}`),
-      fetchCached(historyUrl, `hist-${nameOnPlatform}-${selectedPlatform}`),
-      fetchCached(seasonalUrl, `seasonal-${nameOnPlatform}-${selectedPlatform}`),
+    const [statsRes, historyRes] = await Promise.all([
+      fetchCached(statsUrl, `stats-${nameOnPlatform}-${platform}`),
+      fetchCached(historyUrl, `hist-${nameOnPlatform}-${platform}`),
     ]);
 
-    if (!statsRes.ok || !statsRes.json) {
+    if (!statsRes?.json?.platform_families_full_profiles) {
       return res.json({ ranked: null, casual: null });
     }
 
-    const statsData = statsRes.json;
-    const historyData = historyRes?.json || null;
-    const seasonalData = seasonalRes?.json || null;
-
-    if (!statsData?.platform_families_full_profiles) {
-      console.log("❌ statsData missing platform_families_full_profiles");
-      return res.json({ ranked: null, casual: null });
-    }
-
-    /* ============================= */
-    /* PARSE CURRENT STATS */
-    /* ============================= */
     const {
       rankedProfile,
       rankedStats,
       casualProfile,
       casualStats,
-    } = parseStats(statsData);
+    } = parseStats(statsRes.json);
 
-    const currentMMR = rankedProfile.rank_points ?? 0;
+    const currentMMR = rankedProfile.rank_points || 0;
     const currentRank = getRankFromMMR(currentMMR);
 
-    /* ============================= */
-    /* PEAK (selected platform only) */
-    /* ============================= */
-    let peak = getPeak(historyData, seasonalData, selectedPlatform);
+    /* 🔥 PEAK FIXED */
+    const peak = getPeak(historyRes.json, statsRes.json, platform);
 
-    if (!peak) {
-      const fallbackMMR =
-        rankedProfile.max_rank_points ??
-        rankedProfile.rank_points ??
-        0;
+    const peakMMR =
+      peak?.mmr ||
+      rankedProfile.max_rank_points ||
+      currentMMR;
 
-      if (fallbackMMR > 0) {
-        peak = {
-          mmr: fallbackMMR,
-          rank: firstString(
-            rankedProfile.max_rank_name,
-            rankedProfile.maxRankName,
-            rankedProfile.max_rank,
-            rankedProfile.rank_name,
-            rankedProfile.rankName
-          ) || getRankFromMMR(fallbackMMR).name,
-          score: rankScoreFromLabel(
-            firstString(
-              rankedProfile.max_rank_name,
-              rankedProfile.maxRankName,
-              rankedProfile.max_rank,
-              rankedProfile.rank_name,
-              rankedProfile.rankName
-            ) || getRankFromMMR(fallbackMMR).name
-          ) || 0,
-          color:
-            rankColorFromLabel(
-              firstString(
-                rankedProfile.max_rank_name,
-                rankedProfile.maxRankName,
-                rankedProfile.max_rank,
-                rankedProfile.rank_name,
-                rankedProfile.rankName
-              ) || getRankFromMMR(fallbackMMR).name
-            ) || getRankFromMMR(fallbackMMR).color,
-          image: null,
-          platform: selectedPlatform,
-        };
-      }
-    }
+    const peakRank =
+      peak?.rank || getRankFromMMR(peakMMR).name;
 
-    const peakMMR = peak?.mmr ?? null;
-    const peakRank = peak?.rank || (peakMMR ? getRankFromMMR(peakMMR).name : "UNRANKED");
-
-    /* ============================= */
-    /* OUTPUT */
-    /* ============================= */
     const ranked = {
       username: nameOnPlatform,
-      platform: selectedPlatform.toUpperCase(),
+      platform: platform.toUpperCase(),
 
       kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
       deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
@@ -455,22 +331,27 @@ app.get("/api/stats", async (req, res) => {
         rankedStats.deaths ?? rankedProfile.deaths
       ),
 
-      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
-      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
+      wins:
+        rankedStats.match_outcomes?.wins ??
+        rankedProfile.wins ??
+        0,
+
+      losses:
+        rankedStats.match_outcomes?.losses ??
+        rankedProfile.losses ??
+        0,
 
       rank: currentRank.name,
       mmr: currentMMR,
 
       bestRank: peakRank,
       bestMMR: peakMMR,
-      bestPlatform: peak?.platform || selectedPlatform,
-      bestRankImg: peak?.image || null,
-      bestRankColor: peak?.color || currentRank.color,
+      bestPlatform: platform,
     };
 
     const casual = {
       username: nameOnPlatform,
-      platform: selectedPlatform.toUpperCase(),
+      platform: platform.toUpperCase(),
 
       kills: casualStats.kills ?? casualProfile.kills ?? 0,
       deaths: casualStats.deaths ?? casualProfile.deaths ?? 0,
@@ -479,25 +360,32 @@ app.get("/api/stats", async (req, res) => {
         casualStats.deaths ?? casualProfile.deaths
       ),
 
-      wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
-      losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
+      wins:
+        casualStats.match_outcomes?.wins ??
+        casualProfile.wins ??
+        0,
+
+      losses:
+        casualStats.match_outcomes?.losses ??
+        casualProfile.losses ??
+        0,
 
       rank: "UNRANKED",
       mmr: null,
     };
 
-    res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
+
   } catch (err) {
-    console.error("❌ SERVER ERROR:", err);
+    console.error("❌ ERROR:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
 /* ============================= */
-/* START */
+/* 🔥 START */
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Backend running on port ${PORT}`);
+  console.log("Backend running on port", PORT);
 });
