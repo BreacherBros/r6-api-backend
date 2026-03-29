@@ -39,25 +39,48 @@ const API_KEY = process.env.API_KEY;
 /* PEAK FROM R6DATA HISTORY */
 /* ============================= */
 function getHighestRank(historyJson) {
-  const historyArray = historyJson?.data?.history?.data;
+  if (!historyJson) return null;
 
-  if (!Array.isArray(historyArray) || historyArray.length === 0) {
-    return null;
+  let historyArray = [];
+
+  // 🔥 alle möglichen Formate abfangen
+  if (Array.isArray(historyJson?.data?.history?.data)) {
+    historyArray = historyJson.data.history.data;
+  } else if (Array.isArray(historyJson?.data?.history)) {
+    historyArray = historyJson.data.history;
+  } else if (Array.isArray(historyJson?.history?.data)) {
+    historyArray = historyJson.history.data;
+  } else if (Array.isArray(historyJson?.history)) {
+    historyArray = historyJson.history;
+  } else if (Array.isArray(historyJson)) {
+    historyArray = historyJson;
   }
+
+  console.log("👉 FINAL HISTORY ARRAY:", historyArray);
+
+  if (!historyArray.length) return null;
 
   let best = null;
 
   for (const entry of historyArray) {
-    // r6data: [timestamp, payload]
+    // 🔥 sowohl [timestamp, payload] als auch direkt payload
     const payload = Array.isArray(entry) ? entry[1] : entry;
 
-    const value = payload?.value;
+    const value =
+      payload?.value ??
+      payload?.mmr ??
+      payload?.rank_points ??
+      payload?.rating;
+
     if (typeof value !== "number") continue;
 
     if (!best || value > best.mmr) {
       best = {
         mmr: value,
-        rank: payload?.metadata?.rank || "UNKNOWN",
+        rank:
+          payload?.metadata?.rank ||
+          payload?.rank ||
+          "UNKNOWN",
         image: payload?.metadata?.imageUrl || null,
         color: payload?.metadata?.color || "#ffd700",
       };
@@ -66,7 +89,6 @@ function getHighestRank(historyJson) {
 
   return best;
 }
-
 /* ============================= */
 /* HELPERS */
 /* ============================= */
@@ -141,6 +163,7 @@ app.get("/api/stats", async (req, res) => {
 
     if (historyRes) {
       try {
+        console.log("🔥 HISTORY STATUS:", historyRes?.status);
         const historyJson = await historyRes.json();
         console.log("🔥 RAW HISTORY FULL:", JSON.stringify(historyJson, null, 2));
 
