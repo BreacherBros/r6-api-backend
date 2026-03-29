@@ -39,17 +39,20 @@ const API_KEY = process.env.API_KEY;
 /* ============================= */
 /* 🔥 PEAK FUNCTION */
 /* ============================= */
-function getHighestRank(history) {
-  if (!Array.isArray(history)) return null;
+function getHighestRank(historyArray) {
+  if (!Array.isArray(historyArray) || historyArray.length === 0) {
+    return null;
+  }
 
   let best = null;
 
-  for (const entry of history) {
-    const d = entry?.[1];
-    if (!d?.value) continue;
+  for (const entry of historyArray) {
+    const data = entry?.[1];
 
-    if (!best || d.value > best.value) {
-      best = d;
+    if (!data || typeof data.value !== "number") continue;
+
+    if (!best || data.value > best.value) {
+      best = data;
     }
   }
 
@@ -116,8 +119,8 @@ app.get("/api/stats", async (req, res) => {
     const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}`;
 
     /* ============================= */
-    /* 🔥 PARALLEL FETCH (FASTER) */
-    /* ============================= */
+    /* 🔥 PARALLEL FETCH */
+/* ============================= */
     const [statsRes, historyRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
       fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null)
@@ -130,16 +133,25 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* ============================= */
-    /* 🔥 PEAK */
+    /* 🔥 PEAK FIX */
 /* ============================= */
     let bestRank = null;
 
     if (historyRes) {
       try {
         const historyJson = await historyRes.json();
-        const historyArray = historyJson?.data?.history?.data || [];
+
+        const historyArray =
+          historyJson?.data?.history?.data ||
+          historyJson?.history?.data ||
+          [];
+
         bestRank = getHighestRank(historyArray);
-      } catch {}
+
+        console.log("🔥 PEAK:", bestRank); // DEBUG
+      } catch (e) {
+        console.log("⚠️ History parsing failed");
+      }
     }
 
     /* ============================= */
@@ -182,10 +194,11 @@ app.get("/api/stats", async (req, res) => {
       rank: getRankName(rankedProfile.rank),
       mmr: rankedProfile.rank_points ?? 0,
 
-      bestRank: bestRank?.rank,
-      bestMMR: bestRank?.mmr,
-      bestRankImg: bestRank?.image,
-      bestRankColor: bestRank?.color
+      /* 🔥 FIXED PEAK */
+      bestRank: bestRank?.rank || null,
+      bestMMR: bestRank?.mmr || null,
+      bestRankImg: bestRank?.image || null,
+      bestRankColor: bestRank?.color || null
     };
 
     const casual = {
