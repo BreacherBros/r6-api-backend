@@ -46,7 +46,7 @@ const calcKD = (k, d) => {
   return (k / d).toFixed(2);
 };
 
-/* Rank System wie dein Frontend */
+/* Rank System wie Frontend */
 const getRankFromMMR = (mmr) => {
   if (!mmr || mmr <= 0) return { name: "UNRANKED", color: "#888" };
 
@@ -117,7 +117,7 @@ app.get("/api/stats", async (req, res) => {
       isPC ? "pc" : "console"
     }`;
 
-    /* 🔥 BEIDE REQUESTS */
+    /* 🔥 beide Requests */
     const [statsRes, seasonalRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
       fetch(seasonalUrl, { headers: { "api-key": API_KEY } }).catch(() => null),
@@ -139,7 +139,7 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* ============================= */
-    /* CURRENT SEASON */
+    /* CURRENT DATA */
     /* ============================= */
     const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -165,10 +165,11 @@ app.get("/api/stats", async (req, res) => {
     );
 
     /* ============================= */
-    /* 🔥 PEAK SYSTEM (FINAL FIX) */
+    /* 🔥 PEAK SYSTEM (ULTIMATE FIX) */
     /* ============================= */
     let peakMMR = 0;
 
+    /* 1️⃣ seasonalStats */
     const seasonalBoards =
       seasonalData?.platform_families_full_profiles?.[0]
         ?.board_ids_full_profiles || [];
@@ -190,12 +191,19 @@ app.get("/api/stats", async (req, res) => {
       }
     }
 
-    /* 🔥 FALLBACK */
-    if (!peakMMR) {
-      peakMMR =
-        rankedProfile?.max_rank_points ??
-        rankedProfile?.rank_points ??
-        0;
+    /* 2️⃣ fallback current */
+    const currentPeak =
+      rankedProfile?.max_rank_points ??
+      rankedProfile?.rank_points ??
+      0;
+
+    if (currentPeak > peakMMR) {
+      peakMMR = currentPeak;
+    }
+
+    /* 3️⃣ HARD FIX (API BUG FIX) */
+    if (peakMMR < 3500 && rankedProfile?.max_rank >= 15) {
+      peakMMR = 3500; // Emerald fallback
     }
 
     const peakRank = getRankFromMMR(peakMMR);
@@ -264,7 +272,7 @@ app.get("/api/stats", async (req, res) => {
 
   } catch (err) {
     console.error("❌ BACKEND CRASH:", err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 });
 
