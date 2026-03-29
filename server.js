@@ -36,60 +36,6 @@ app.get("/", (req, res) => {
 const API_KEY = process.env.API_KEY;
 
 /* ============================= */
-/* PEAK FROM R6DATA HISTORY */
-/* ============================= */
-function getHighestRank(historyJson) {
-  if (!historyJson) return null;
-
-  let historyArray = [];
-
-  // 🔥 alle möglichen Formate abfangen
-  if (Array.isArray(historyJson?.data?.history?.data)) {
-    historyArray = historyJson.data.history.data;
-  } else if (Array.isArray(historyJson?.data?.history)) {
-    historyArray = historyJson.data.history;
-  } else if (Array.isArray(historyJson?.history?.data)) {
-    historyArray = historyJson.history.data;
-  } else if (Array.isArray(historyJson?.history)) {
-    historyArray = historyJson.history;
-  } else if (Array.isArray(historyJson)) {
-    historyArray = historyJson;
-  }
-
-  console.log("👉 FINAL HISTORY ARRAY:", historyArray);
-
-  if (!historyArray.length) return null;
-
-  let best = null;
-
-  for (const entry of historyArray) {
-    // 🔥 sowohl [timestamp, payload] als auch direkt payload
-    const payload = Array.isArray(entry) ? entry[1] : entry;
-
-    const value =
-      payload?.value ??
-      payload?.mmr ??
-      payload?.rank_points ??
-      payload?.rating;
-
-    if (typeof value !== "number") continue;
-
-    if (!best || value > best.mmr) {
-      best = {
-        mmr: value,
-        rank:
-          payload?.metadata?.rank ||
-          payload?.rank ||
-          "UNKNOWN",
-        image: payload?.metadata?.imageUrl || null,
-        color: payload?.metadata?.color || "#ffd700",
-      };
-    }
-  }
-
-  return best;
-}
-/* ============================= */
 /* HELPERS */
 /* ============================= */
 const calcKD = (k, d) => {
@@ -105,6 +51,20 @@ const getRankName = (rank) => {
   if (rank >= 10) return "PLATINUM";
   if (rank >= 5) return "GOLD";
   return "SILVER";
+};
+
+/* 🔥 WICHTIG: Rank aus MMR berechnen */
+const getRankFromMMR = (mmr) => {
+  if (!mmr) return { name: "UNRANKED", color: "#888" };
+
+  if (mmr >= 5000) return { name: "CHAMPION", color: "#ff0000" };
+  if (mmr >= 4500) return { name: "DIAMOND", color: "#b9f2ff" };
+  if (mmr >= 4000) return { name: "EMERALD", color: "#50c878" };
+  if (mmr >= 3500) return { name: "PLATINUM", color: "#00bfff" };
+  if (mmr >= 3000) return { name: "GOLD", color: "#ffd700" };
+  if (mmr >= 2500) return { name: "SILVER", color: "#c0c0c0" };
+
+  return { name: "BRONZE", color: "#cd7f32" };
 };
 
 /* ============================= */
@@ -141,43 +101,15 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-  const historyUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
-  nameOnPlatform
-)}&platformType=${apiPlatform}`;
-
-    const [statsRes, historyRes] = await Promise.all([
-      fetch(statsUrl, { headers: { "api-key": API_KEY } }),
-    fetch(historyUrl, { headers: { "api-key": API_KEY } })
-    ]);
+    const statsRes = await fetch(statsUrl, {
+      headers: { "api-key": API_KEY },
+    });
 
     const statsData = await statsRes.json();
 
     if (!statsRes.ok || !statsData?.platform_families_full_profiles) {
       return res.json({ ranked: null, casual: null });
     }
-
-    /* ============================= */
-    /* PEAK */
-    /* ============================= */
-    let bestRank = null;
-
-  if (historyRes && historyRes.ok) {
-  try {
-    const historyJson = await historyRes.json();
-
-    console.log("🔥 HISTORY JSON:", JSON.stringify(historyJson, null, 2));
-
-    bestRank = getHighestRank(historyJson);
-
-    console.log("🔥 PEAK:", bestRank);
-  } catch (e) {
-    console.log("⚠️ History parsing failed:", e);
-  }
-} else {
-  console.log("❌ HISTORY REQUEST FAILED:", historyRes?.status);
-}
-
-     
 
     /* ============================= */
     /* PARSE DATA */
@@ -200,6 +132,14 @@ app.get("/api/stats", async (req, res) => {
     const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     /* ============================= */
+    /* PEAK (Richtig über MMR) */
+    /* ============================= */
+    const peakMMR =
+      rankedProfile.max_rank_points ?? rankedProfile.rank_points ?? 0;
+
+    const peakRank = getRankFromMMR(peakMMR);
+
+    /* ============================= */
     /* OUTPUT */
     /* ============================= */
     const ranked = {
@@ -219,10 +159,10 @@ app.get("/api/stats", async (req, res) => {
       rank: getRankName(rankedProfile.rank),
       mmr: rankedProfile.rank_points ?? 0,
 
-      bestRank: bestRank?.rank || null,
-      bestMMR: bestRank?.mmr || null,
-      bestRankImg: bestRank?.image || null,
-      bestRankColor: bestRank?.color || null,
+      bestRank: peakRank.name,
+      bestMMR: peakMMR,
+      bestRankImg: null,
+      bestRankColor: peakRank.color,
     };
 
     const casual = {
