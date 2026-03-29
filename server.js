@@ -40,30 +40,26 @@ const API_KEY = process.env.API_KEY;
 /* 🔥 PEAK FUNCTION */
 /* ============================= */
 function getHighestRank(historyArray) {
-  if (!Array.isArray(historyArray) || historyArray.length === 0) {
-    return null;
-  }
+  if (!Array.isArray(historyArray)) return null;
 
   let best = null;
 
   for (const entry of historyArray) {
-    const data = entry?.[1];
+    const value = entry?.value || entry?.mmr || entry?.rank_points;
 
-    if (!data || typeof data.value !== "number") continue;
+    if (typeof value !== "number") continue;
 
-    if (!best || data.value > best.value) {
-      best = data;
+    if (!best || value > best.mmr) {
+      best = {
+        mmr: value,
+        rank: entry?.metadata?.rank || entry?.rank || "UNKNOWN",
+        image: entry?.metadata?.imageUrl || null,
+        color: entry?.metadata?.color || "#fff"
+      };
     }
   }
 
-  if (!best) return null;
-
-  return {
-    mmr: best.value,
-    rank: best.metadata?.rank || "UNKNOWN",
-    image: best.metadata?.imageUrl || null,
-    color: best.metadata?.color || "#fff"
-  };
+  return best;
 }
 
 /* ============================= */
