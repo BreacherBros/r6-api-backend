@@ -7,23 +7,25 @@ import tiktokRoutes from "./tiktok.js";
 const app = express();
 
 /* ============================= */
-/* 🔥 CORS */
+/* CORS */
 /* ============================= */
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowed = [
-      "https://breacherbros.com",
-      "https://www.breacherbros.com"
-    ];
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      const allowed = [
+        "https://breacherbros.com",
+        "https://www.breacherbros.com",
+      ];
 
-    if (!origin || allowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log("❌ Blocked by CORS:", origin);
-      callback(null, true);
-    }
-  }
-}));
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ Blocked by CORS:", origin);
+        callback(null, true);
+      }
+    },
+  })
+);
 
 app.use(express.json());
 
@@ -37,24 +39,33 @@ app.get("/", (req, res) => {
 const API_KEY = process.env.API_KEY;
 
 /* ============================= */
-/* 🔥 PEAK FUNCTION */
+/* PEAK FUNCTION */
 /* ============================= */
 function getHighestRank(historyArray) {
-  if (!Array.isArray(historyArray)) return null;
+  if (!Array.isArray(historyArray) || historyArray.length === 0) return null;
 
   let best = null;
 
   for (const entry of historyArray) {
-    const value = entry?.value || entry?.mmr || entry?.rank_points;
+    const value =
+      entry?.value ??
+      entry?.mmr ??
+      entry?.rank_points ??
+      entry?.rankPoints ??
+      entry?.rating;
 
     if (typeof value !== "number") continue;
 
     if (!best || value > best.mmr) {
       best = {
         mmr: value,
-        rank: entry?.metadata?.rank || entry?.rank || "UNKNOWN",
+        rank:
+          entry?.metadata?.rank ||
+          entry?.rank ||
+          entry?.rank_name ||
+          "UNKNOWN",
         image: entry?.metadata?.imageUrl || null,
-        color: entry?.metadata?.color || "#fff"
+        color: entry?.metadata?.color || "#fff",
       };
     }
   }
@@ -63,10 +74,10 @@ function getHighestRank(historyArray) {
 }
 
 /* ============================= */
-/* 🔥 HELPERS */
+/* HELPERS */
 /* ============================= */
 const calcKD = (k, d) => {
-  if (!k || !d || d === 0) return null;
+  if (k == null || d == null || d === 0) return null;
   return (k / d).toFixed(2);
 };
 
@@ -80,8 +91,20 @@ const getRankName = (rank) => {
   return "SILVER";
 };
 
+function extractHistoryArray(historyJson) {
+  if (!historyJson) return [];
+
+  if (Array.isArray(historyJson)) return historyJson;
+  if (Array.isArray(historyJson.data)) return historyJson.data;
+  if (Array.isArray(historyJson.history)) return historyJson.history;
+  if (Array.isArray(historyJson.data?.history)) return historyJson.data.history;
+  if (Array.isArray(historyJson.data?.history?.data)) return historyJson.data.history.data;
+
+  return [];
+}
+
 /* ============================= */
-/* 🔥 API */
+/* API */
 /* ============================= */
 app.get("/api/stats", async (req, res) => {
   try {
@@ -100,7 +123,7 @@ app.get("/api/stats", async (req, res) => {
       xbox: "xbl",
       xbl: "xbl",
       pc: "uplay",
-      uplay: "uplay"
+      uplay: "uplay",
     };
 
     const apiPlatform = platformMap[platformType.toLowerCase()];
@@ -110,16 +133,20 @@ app.get("/api/stats", async (req, res) => {
 
     const isPC = apiPlatform === "uplay";
 
-    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
+    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
+      nameOnPlatform
+    )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}`;
+    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(
+      nameOnPlatform
+    )}&platformType=${apiPlatform}`;
 
     /* ============================= */
-    /* 🔥 PARALLEL FETCH */
-/* ============================= */
+    /* PARALLEL FETCH */
+    /* ============================= */
     const [statsRes, historyRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
-      fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null)
+      fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null),
     ]);
 
     const statsData = await statsRes.json();
@@ -129,8 +156,8 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* ============================= */
-    /* 🔥 PEAK FIX */
-/* ============================= */
+    /* PEAK FIX */
+    /* ============================= */
     let bestRank = null;
 
     if (historyRes) {
@@ -138,170 +165,27 @@ app.get("/api/stats", async (req, res) => {
         const historyJson = await historyRes.json();
         console.log("🔥 RAW HISTORY FULL:", JSON.stringify(historyJson, null, 2));
 
-  import express from "express";
-import fetch from "node-fetch";
-import cors from "cors";
-import youtubeRoutes from "./youtube.js";
-import tiktokRoutes from "./tiktok.js";
-
-const app = express();
-
-/* ============================= */
-/* 🔥 CORS */
-/* ============================= */
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowed = [
-      "https://breacherbros.com",
-      "https://www.breacherbros.com"
-    ];
-
-    if (!origin || allowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log("❌ Blocked by CORS:", origin);
-      callback(null, true);
-    }
-  }
-}));
-
-app.use(express.json());
-
-app.use("/api", youtubeRoutes);
-app.use("/api", tiktokRoutes);
-
-app.get("/", (req, res) => {
-  res.send("Backend running");
-});
-
-const API_KEY = process.env.API_KEY;
-
-/* ============================= */
-/* 🔥 PEAK FUNCTION */
-/* ============================= */
-function getHighestRank(historyArray) {
-  if (!Array.isArray(historyArray)) return null;
-
-  let best = null;
-
-  for (const entry of historyArray) {
-    const value = entry?.value || entry?.mmr || entry?.rank_points;
-
-    if (typeof value !== "number") continue;
-
-    if (!best || value > best.mmr) {
-      best = {
-        mmr: value,
-        rank: entry?.metadata?.rank || entry?.rank || "UNKNOWN",
-        image: entry?.metadata?.imageUrl || null,
-        color: entry?.metadata?.color || "#fff"
-      };
-    }
-  }
-
-  return best;
-}
-
-/* ============================= */
-/* 🔥 HELPERS */
-/* ============================= */
-const calcKD = (k, d) => {
-  if (!k || !d || d === 0) return null;
-  return (k / d).toFixed(2);
-};
-
-const getRankName = (rank) => {
-  if (rank == null) return "UNRANKED";
-  if (rank >= 25) return "CHAMPION";
-  if (rank >= 20) return "DIAMOND";
-  if (rank >= 15) return "EMERALD";
-  if (rank >= 10) return "PLATINUM";
-  if (rank >= 5) return "GOLD";
-  return "SILVER";
-};
-
-/* ============================= */
-/* 🔥 API */
-/* ============================= */
-app.get("/api/stats", async (req, res) => {
-  try {
-    const { nameOnPlatform, platformType } = req.query;
-
-    if (!nameOnPlatform || !platformType) {
-      return res.status(400).json({ error: "Missing parameters" });
-    }
-
-    if (!API_KEY) {
-      return res.status(500).json({ error: "API KEY missing" });
-    }
-
-    const platformMap = {
-      psn: "psn",
-      xbox: "xbl",
-      xbl: "xbl",
-      pc: "uplay",
-      uplay: "uplay"
-    };
-
-    const apiPlatform = platformMap[platformType.toLowerCase()];
-    if (!apiPlatform) {
-      return res.status(400).json({ error: "Invalid platform" });
-    }
-
-    const isPC = apiPlatform === "uplay";
-
-    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
-
-    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${apiPlatform}`;
-
-    /* ============================= */
-    /* 🔥 PARALLEL FETCH */
-/* ============================= */
-    const [statsRes, historyRes] = await Promise.all([
-      fetch(statsUrl, { headers: { "api-key": API_KEY } }),
-      fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null)
-    ]);
-
-    const statsData = await statsRes.json();
-
-    if (!statsRes.ok || !statsData?.platform_families_full_profiles) {
-      return res.json({ ranked: null, casual: null });
-    }
-
-    /* ============================= */
-    /* 🔥 PEAK FIX */
-/* ============================= */
-    let bestRank = null;
-
-    if (historyRes) {
-      try {
-        const historyJson = await historyRes.json();
-        console.log("🔥 RAW HISTORY FULL:", JSON.stringify(historyJson, null, 2));
-
-        const historyArray =
-          historyJson?.data?.history?.data ||
-          historyJson?.history?.data ||
-          [];
+        const historyArray = extractHistoryArray(historyJson);
+        console.log("🔥 PARSED HISTORY:", historyArray);
 
         bestRank = getHighestRank(historyArray);
-
-        console.log("🔥 PEAK:", bestRank); // DEBUG
+        console.log("🔥 PEAK:", bestRank);
       } catch (e) {
-        console.log("⚠️ History parsing failed");
+        console.log("⚠️ History parsing failed:", e?.message || e);
       }
     }
 
     /* ============================= */
-    /* 🔥 PARSE DATA */
-/* ============================= */
+    /* PARSE DATA */
+    /* ============================= */
     const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
 
-    const rankedBoard = boards.find(b =>
+    const rankedBoard = boards.find((b) =>
       ["pvp_ranked", "ranked"].includes(b.board_id)
     );
 
-    const casualBoard = boards.find(b =>
+    const casualBoard = boards.find((b) =>
       ["pvp_casual", "standard"].includes(b.board_id)
     );
 
@@ -312,8 +196,8 @@ app.get("/api/stats", async (req, res) => {
     const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     /* ============================= */
-    /* 🔥 OUTPUT */
-/* ============================= */
+    /* OUTPUT */
+    /* ============================= */
     const ranked = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
@@ -331,11 +215,11 @@ app.get("/api/stats", async (req, res) => {
       rank: getRankName(rankedProfile.rank),
       mmr: rankedProfile.rank_points ?? 0,
 
-      /* 🔥 FIXED PEAK */
+      /* Peak */
       bestRank: bestRank?.rank || null,
       bestMMR: bestRank?.mmr || null,
       bestRankImg: bestRank?.image || null,
-      bestRankColor: bestRank?.color || null
+      bestRankColor: bestRank?.color || null,
     };
 
     const casual = {
@@ -353,12 +237,11 @@ app.get("/api/stats", async (req, res) => {
       losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
 
       rank: "UNRANKED",
-      mmr: null
+      mmr: null,
     };
 
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
-
   } catch (err) {
     console.error("❌ BACKEND CRASH:", err);
     res.status(500).json({ error: "Server error" });
@@ -366,97 +249,7 @@ app.get("/api/stats", async (req, res) => {
 });
 
 /* ============================= */
-/* 🔥 START */
-/* ============================= */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Backend running on port", PORT);
-});
-
-        bestRank = getHighestRank(historyArray);
-
-        console.log("🔥 PEAK:", bestRank); // DEBUG
-      } catch (e) {
-        console.log("⚠️ History parsing failed");
-      }
-    }
-
-    /* ============================= */
-    /* 🔥 PARSE DATA */
-/* ============================= */
-    const root = statsData.platform_families_full_profiles[0];
-    const boards = root?.board_ids_full_profiles || [];
-
-    const rankedBoard = boards.find(b =>
-      ["pvp_ranked", "ranked"].includes(b.board_id)
-    );
-
-    const casualBoard = boards.find(b =>
-      ["pvp_casual", "standard"].includes(b.board_id)
-    );
-
-    const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || {};
-    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || {};
-
-    const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
-    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
-
-    /* ============================= */
-    /* 🔥 OUTPUT */
-/* ============================= */
-    const ranked = {
-      username: nameOnPlatform,
-      platform: apiPlatform.toUpperCase(),
-
-      kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
-      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
-      kd: calcKD(
-        rankedStats.kills ?? rankedProfile.kills,
-        rankedStats.deaths ?? rankedProfile.deaths
-      ),
-
-      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
-      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
-
-      rank: getRankName(rankedProfile.rank),
-      mmr: rankedProfile.rank_points ?? 0,
-
-      /* 🔥 FIXED PEAK */
-      bestRank: bestRank?.rank || null,
-      bestMMR: bestRank?.mmr || null,
-      bestRankImg: bestRank?.image || null,
-      bestRankColor: bestRank?.color || null
-    };
-
-    const casual = {
-      username: nameOnPlatform,
-      platform: apiPlatform.toUpperCase(),
-
-      kills: casualStats.kills ?? casualProfile.kills ?? 0,
-      deaths: casualStats.deaths ?? casualProfile.deaths ?? 0,
-      kd: calcKD(
-        casualStats.kills ?? casualProfile.kills,
-        casualStats.deaths ?? casualProfile.deaths
-      ),
-
-      wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
-      losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
-
-      rank: "UNRANKED",
-      mmr: null
-    };
-
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ ranked, casual });
-
-  } catch (err) {
-    console.error("❌ BACKEND CRASH:", err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-/* ============================= */
-/* 🔥 START */
+/* START */
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
