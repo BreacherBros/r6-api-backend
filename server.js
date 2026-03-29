@@ -71,28 +71,23 @@ async function fetchJson(url, key) {
   if (cached) return cached;
 
   try {
-    const response = await fetch(url, {
+    const res = await fetch(url, {
       headers: { "api-key": API_KEY },
     });
 
-    const json = await response.json().catch(() => null);
+    const json = await res.json().catch(() => null);
 
     const result = {
-      ok: response.ok,
-      status: response.status,
+      ok: res.ok,
+      status: res.status,
       json,
     };
 
     setCache(key, result);
     return result;
-  } catch (error) {
-    console.error("❌ Fetch error:", error);
-    return {
-      ok: false,
-      status: 0,
-      json: null,
-      error,
-    };
+  } catch (err) {
+    console.error("❌ Fetch error:", err);
+    return { ok: false, status: 0, json: null, error: err };
   }
 }
 
@@ -155,10 +150,6 @@ function getRankFromMMR(mmr) {
   };
 }
 
-function normalizeKey(value) {
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
 function parseRankLabel(label) {
   if (typeof label !== "string") return null;
 
@@ -177,7 +168,6 @@ function parseRankLabel(label) {
 
 function formatRankLabel(label, mmr) {
   const parsed = parseRankLabel(label);
-
   if (parsed) {
     if (parsed.tier === "CHAMPION") return "CHAMPION";
     if (parsed.division == null) return parsed.tier;
@@ -221,8 +211,8 @@ function firstNumber(...values) {
   for (const value of values) {
     if (typeof value === "number" && Number.isFinite(value)) return value;
     if (typeof value === "string" && value.trim() !== "") {
-      const num = Number(value);
-      if (Number.isFinite(num)) return num;
+      const n = Number(value);
+      if (Number.isFinite(n)) return n;
     }
   }
   return null;
@@ -249,8 +239,19 @@ function parseStats(data) {
 }
 
 /* ============================= */
-/* PEAK COLLECTION */
+/* PEAK EXTRACTION */
 /* ============================= */
+/*
+  Priority:
+  1) seasonalStats
+  2) history
+  3) stats fallback
+
+  Important:
+  - Only rank-related nodes are considered
+  - No scanning of unrelated numbers like kills, damage, time played
+  - Only selected platform is used
+*/
 function collectPeakCandidates(source, platform, sourceTag) {
   if (!source) return [];
 
@@ -259,28 +260,19 @@ function collectPeakCandidates(source, platform, sourceTag) {
   const sourceWeight =
     sourceTag === "seasonal" ? 3 : sourceTag === "history" ? 2 : 1;
 
-  function isPeakLikeNode(node) {
-    const metadataKey = normalizeKey(node?.metadata?.key || node?.key);
-    const displayName = normalizeKey(node?.displayName || node?.display_name);
+  function isRankPointsNode(node) {
+    const displayName = firstString(node?.displayName, node?.display_name);
+    const metadataKey = firstString(node?.metadata?.key, node?.key);
 
-    const hasRankValueKey =
-      Object.prototype.hasOwnProperty.call(node, "max_rank_points") ||
-      Object.prototype.hasOwnProperty.call(node, "maxRankPoints") ||
+    return (
+      displayName === "Rank Points" ||
+      metadataKey === "RankPoints" ||
+      metadataKey === "rankpoints" ||
       Object.prototype.hasOwnProperty.call(node, "rank_points") ||
-      Object.prototype.hasOwnProperty.call(node, "rankPoints");
-
-    const hasRankLabelKey =
-      Object.prototype.hasOwnProperty.call(node, "max_rank_name") ||
-      Object.prototype.hasOwnProperty.call(node, "maxRankName") ||
-      Object.prototype.hasOwnProperty.call(node, "rank_name") ||
-      Object.prototype.hasOwnProperty.call(node, "rankName") ||
-      typeof node?.metadata?.rank === "string" ||
-      typeof node?.rank === "string";
-
-    const looksLikeRankPoints =
-      metadataKey === "rankpoints" || displayName === "rank points";
-
-    return looksLikeRankPoints || (hasRankValueKey && hasRankLabelKey);
+      Object.prototype.hasOwnProperty.call(node, "rankPoints") ||
+      Object.prototype.hasOwnProperty.call(node, "max_rank_points") ||
+      Object.prototype.hasOwnProperty.call(node, "maxRankPoints")
+    );
   }
 
   function walk(node) {
@@ -293,22 +285,20 @@ function collectPeakCandidates(source, platform, sourceTag) {
       return;
     }
 
-    if (isPeakLikeNode(node)) {
+    if (isRankPointsNode(node)) {
       const mmr = firstNumber(
         node?.value,
         node?.mmr,
-        node?.max_rank_points,
-        node?.maxRankPoints,
         node?.rank_points,
-        node?.rankPoints
+        node?.rankPoints,
+        node?.max_rank_points,
+        node?.maxRankPoints
       );
 
       if (mmr != null && mmr > 0) {
         const label = formatRankLabel(
           firstString(
             node?.metadata?.rank,
-            node?.max_rank_name,
-            node?.maxRankName,
             node?.rank_name,
             node?.rankName,
             typeof node?.rank === "string" ? node.rank : null
@@ -436,10 +426,7 @@ app.get("/api/stats", async (req, res) => {
 
     const currentRank = getRankFromMMR(currentMMR);
 
-    /* ============================= */
-    /* PEAK: seasonal > history > stats */
-    /* ============================= */
-    let peak = getBestPeakFromSources(
+    const peak = getBestPeakFromSources(
       [
         { source: seasonalData, tag: "seasonal" },
         { source: historyData, tag: "history" },
@@ -447,43 +434,6 @@ app.get("/api/stats", async (req, res) => {
       ],
       platform
     );
-
-    if (!peak) {
-      const fallbackMMR =
-        rankedProfile.max_rank_points ??
-        rankedProfile.maxRankPoints ??
-        rankedProfile.rank_points ??
-        rankedProfile.rankPoints ??
-        0;
-
-      if (fallbackMMR > 0) {
-        const fallbackLabel = formatRankLabel(
-          firstString(
-            rankedProfile.max_rank_name,
-            rankedProfile.maxRankName,
-            rankedProfile.max_rank,
-            rankedProfile.rank_name,
-            rankedProfile.rankName
-          ),
-          fallbackMMR
-        );
-
-        peak = {
-          mmr: fallbackMMR,
-          rank: fallbackLabel || getRankFromMMR(fallbackMMR).name,
-          score:
-            rankScoreFromLabel(fallbackLabel) ??
-            rankScoreFromLabel(getRankFromMMR(fallbackMMR).name) ??
-            0,
-          color:
-            rankColorFromLabel(fallbackLabel) ||
-            getRankFromMMR(fallbackMMR).color,
-          image: null,
-          platform,
-          sourceWeight: 1,
-        };
-      }
-    }
 
     const peakMMR = peak?.mmr ?? null;
     const peakRank =
@@ -546,22 +496,6 @@ app.get("/api/stats", async (req, res) => {
       rank: "UNRANKED",
       mmr: null,
     };
-
-    console.log(
-      "🔥 CURRENT:",
-      ranked.username,
-      ranked.platform,
-      ranked.rank,
-      ranked.mmr
-    );
-    console.log(
-      "🔥 PEAK:",
-      ranked.username,
-      ranked.platform,
-      ranked.bestRank,
-      ranked.bestMMR,
-      ranked.bestPlatform
-    );
 
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
