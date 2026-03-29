@@ -39,32 +39,115 @@ const API_KEY = process.env.API_KEY;
 /* HELPERS */
 /* ============================= */
 const calcKD = (k, d) => {
-  if (!k || !d || d === 0) return null;
+  if (k == null || d == null || d === 0) return null;
   return (k / d).toFixed(2);
 };
 
-const getRankName = (rank) => {
-  if (rank == null) return "UNRANKED";
-  if (rank >= 25) return "CHAMPION";
-  if (rank >= 20) return "DIAMOND";
-  if (rank >= 15) return "EMERALD";
-  if (rank >= 10) return "PLATINUM";
-  if (rank >= 5) return "GOLD";
-  return "SILVER";
-};
-
+/* Rank-Mapping passend zu deinem Frontend */
 const getRankFromMMR = (mmr) => {
-  if (!mmr) return { name: "UNRANKED", color: "#888" };
+  if (!mmr || mmr <= 0) return { name: "UNRANKED", color: "#888" };
 
-  if (mmr >= 5000) return { name: "CHAMPION", color: "#ff0000" };
-  if (mmr >= 4500) return { name: "DIAMOND", color: "#b9f2ff" };
-  if (mmr >= 4000) return { name: "EMERALD", color: "#50c878" };
-  if (mmr >= 3500) return { name: "PLATINUM", color: "#00bfff" };
-  if (mmr >= 3000) return { name: "GOLD", color: "#ffd700" };
-  if (mmr >= 2500) return { name: "SILVER", color: "#c0c0c0" };
+  const tiers = [
+    { name: "COPPER", color: "#a52019" },
+    { name: "BRONZE", color: "#a97142" },
+    { name: "SILVER", color: "#c0c0c0" },
+    { name: "GOLD", color: "#ffd700" },
+    { name: "PLATINUM", color: "#4fc3f7" },
+    { name: "EMERALD", color: "#00ff88" },
+    { name: "DIAMOND", color: "#00e5ff" },
+    { name: "CHAMPION", color: "#ff0000" },
+  ];
 
-  return { name: "BRONZE", color: "#cd7f32" };
+  let tierIndex = Math.floor((mmr - 1000) / 500);
+  tierIndex = Math.max(0, Math.min(tierIndex, tiers.length - 1));
+
+  const division =
+    tierIndex === tiers.length - 1
+      ? ""
+      : ` ${5 - Math.floor(((mmr - 1000) % 500) / 100)}`;
+
+  return {
+    name: `${tiers[tierIndex].name}${division}`,
+    color: tiers[tierIndex].color,
+  };
 };
+
+/* ============================= */
+/* PEAK EXTRACTION */
+/* ============================= */
+function extractPeakCandidate(source) {
+  const candidates = [];
+  const seen = new WeakSet();
+
+  const numericKeys = [
+    "max_rank_points",
+    "maxRankPoints",
+    "max_mmr",
+    "maxMmr",
+    "peak_mmr",
+    "peakMmr",
+    "seasonMaxMmr",
+    "season_max_mmr",
+    "rank_points",
+    "rankPoints",
+    "mmr",
+    "elo",
+  ];
+
+  function walk(node) {
+    if (!node || typeof node !== "object") return;
+    if (seen.has(node)) return;
+    seen.add(node);
+
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+
+    let value = null;
+    let hasRankishField = false;
+
+    for (const key of numericKeys) {
+      if (Object.prototype.hasOwnProperty.call(node, key)) {
+        hasRankishField = true;
+        const v = node[key];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          value = v;
+          break;
+        }
+      }
+    }
+
+    if (hasRankishField && value !== null) {
+      const label =
+        typeof node?.metadata?.rank === "string"
+          ? node.metadata.rank
+          : typeof node?.rank_name === "string"
+          ? node.rank_name
+          : typeof node?.rankName === "string"
+          ? node.rankName
+          : typeof node?.rank === "string"
+          ? node.rank
+          : null;
+
+      candidates.push({
+        mmr: value,
+        rank: label,
+        color: node?.metadata?.color || node?.color || null,
+        image: node?.metadata?.imageUrl || node?.imageUrl || null,
+      });
+    }
+
+    for (const child of Object.values(node)) {
+      if (child && typeof child === "object") walk(child);
+    }
+  }
+
+  walk(source);
+
+  candidates.sort((a, b) => b.mmr - a.mmr);
+  return candidates[0] || null;
+}
 
 /* ============================= */
 /* API */
@@ -100,27 +183,32 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    const rankUrl = `https://r6data.eu/api/ranks?nameOnPlatform=${encodeURIComponent(
+    const seasonalUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
-    )}&platformType=${apiPlatform}`;
+    )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
-    /* 🔥 WICHTIG: beide Requests */
-    const [statsRes, rankRes] = await Promise.all([
+    const [statsRes, seasonalRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
-      fetch(rankUrl, { headers: { "api-key": API_KEY } }),
+      fetch(seasonalUrl, { headers: { "api-key": API_KEY } }).catch(() => null),
     ]);
 
     const statsData = await statsRes.json();
-    const rankData = await rankRes.json();
 
-    console.log("🔥 RANK DATA:", rankData);
+    let seasonalData = null;
+    if (seasonalRes && seasonalRes.ok) {
+      try {
+        seasonalData = await seasonalRes.json();
+      } catch (e) {
+        seasonalData = null;
+      }
+    }
 
     if (!statsRes.ok || !statsData?.platform_families_full_profiles) {
       return res.json({ ranked: null, casual: null });
     }
 
     /* ============================= */
-    /* PARSE */
+    /* CURRENT SEASON PARSE */
     /* ============================= */
     const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
@@ -139,16 +227,27 @@ app.get("/api/stats", async (req, res) => {
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
     const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
-    /* ============================= */
-    /* 🔥 PEAK (ECHT FIX) */
-    /* ============================= */
-    let peakMMR = null;
+    const currentRank = getRankFromMMR(rankedProfile.rank_points ?? 0);
 
-    if (Array.isArray(rankData?.data)) {
-      peakMMR = Math.max(...rankData.data.map(r => r.max_mmr || 0));
-    }
+    /* ============================= */
+    /* PEAK FROM SEASONAL STATS */
+    /* ============================= */
+    const peakCandidate =
+      extractPeakCandidate(seasonalData) || extractPeakCandidate(statsData);
 
-    const peakRank = getRankFromMMR(peakMMR);
+    const peakMMR =
+      peakCandidate?.mmr ??
+      rankedProfile.max_rank_points ??
+      rankedProfile.max_mmr ??
+      rankedProfile.rank_points ??
+      null;
+
+    const peakRank = peakCandidate?.rank
+      ? peakCandidate.rank
+      : getRankFromMMR(peakMMR).name;
+
+    const peakColor =
+      peakCandidate?.color || getRankFromMMR(peakMMR).color || null;
 
     /* ============================= */
     /* OUTPUT */
@@ -167,12 +266,13 @@ app.get("/api/stats", async (req, res) => {
       wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
       losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
 
-      rank: getRankName(rankedProfile.rank),
+      rank: currentRank.name,
       mmr: rankedProfile.rank_points ?? 0,
 
-      bestRank: peakRank.name,
+      bestRank: peakRank,
       bestMMR: peakMMR,
-      bestRankColor: peakRank.color,
+      bestRankImg: peakCandidate?.image || null,
+      bestRankColor: peakColor,
     };
 
     const casual = {
@@ -193,15 +293,19 @@ app.get("/api/stats", async (req, res) => {
       mmr: null,
     };
 
+    console.log("🔥 CURRENT:", ranked.rank, ranked.mmr);
+    console.log("🔥 PEAK:", ranked.bestRank, ranked.bestMMR);
+
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
-
   } catch (err) {
     console.error("❌ BACKEND CRASH:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
+/* ============================= */
+/* START */
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
