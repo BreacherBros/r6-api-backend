@@ -6,9 +6,6 @@ import tiktokRoutes from "./tiktok.js";
 
 const app = express();
 
-/* ============================= */
-/* 🔥 CORS */
-/* ============================= */
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -39,19 +36,22 @@ app.get("/", (req, res) => {
 const API_KEY = process.env.API_KEY;
 
 /* ============================= */
-/* 🔥 PEAK FUNCTION (FIXED) */
+/* PEAK FROM R6DATA HISTORY */
 /* ============================= */
-function getHighestRank(historyArray) {
-  if (!Array.isArray(historyArray) || historyArray.length === 0) return null;
+function getHighestRank(historyJson) {
+  const historyArray = historyJson?.data?.history?.data;
+
+  if (!Array.isArray(historyArray) || historyArray.length === 0) {
+    return null;
+  }
 
   let best = null;
 
   for (const entry of historyArray) {
-    // 👉 r6data Struktur: [timestamp, payload]
+    // r6data: [timestamp, payload]
     const payload = Array.isArray(entry) ? entry[1] : entry;
 
     const value = payload?.value;
-
     if (typeof value !== "number") continue;
 
     if (!best || value > best.mmr) {
@@ -68,7 +68,7 @@ function getHighestRank(historyArray) {
 }
 
 /* ============================= */
-/* 🔥 HELPERS */
+/* HELPERS */
 /* ============================= */
 const calcKD = (k, d) => {
   if (k == null || d == null || d === 0) return null;
@@ -85,17 +85,8 @@ const getRankName = (rank) => {
   return "SILVER";
 };
 
-function extractHistoryArray(historyJson) {
-  return (
-    historyJson?.data?.history?.data ||
-    historyJson?.history?.data ||
-    historyJson?.data ||
-    []
-  );
-}
-
 /* ============================= */
-/* 🔥 API */
+/* API */
 /* ============================= */
 app.get("/api/stats", async (req, res) => {
   try {
@@ -126,17 +117,12 @@ app.get("/api/stats", async (req, res) => {
 
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
-    )}&platformType=${apiPlatform}&platform_families=${
-      isPC ? "pc" : "console"
-    }`;
+    )}&platformType=${apiPlatform}&platform_families=${isPC ? "pc" : "console"}`;
 
     const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
     )}&platformType=${apiPlatform}`;
 
-    /* ============================= */
-    /* 🔥 FETCH */
-/* ============================= */
     const [statsRes, historyRes] = await Promise.all([
       fetch(statsUrl, { headers: { "api-key": API_KEY } }),
       fetch(historyUrl, { headers: { "api-key": API_KEY } }).catch(() => null),
@@ -149,27 +135,25 @@ app.get("/api/stats", async (req, res) => {
     }
 
     /* ============================= */
-    /* 🔥 PEAK */
-/* ============================= */
+    /* PEAK */
+    /* ============================= */
     let bestRank = null;
 
     if (historyRes) {
       try {
         const historyJson = await historyRes.json();
+        console.log("🔥 RAW HISTORY FULL:", JSON.stringify(historyJson, null, 2));
 
-        const historyArray = extractHistoryArray(historyJson);
-
-        bestRank = getHighestRank(historyArray);
-
-        console.log("🔥 PEAK RESULT:", bestRank);
+        bestRank = getHighestRank(historyJson);
+        console.log("🔥 PEAK:", bestRank);
       } catch (e) {
-        console.log("⚠️ History parsing failed");
+        console.log("⚠️ History parsing failed:", e?.message || e);
       }
     }
 
     /* ============================= */
-    /* 🔥 PARSE STATS */
-/* ============================= */
+    /* PARSE DATA */
+    /* ============================= */
     const root = statsData.platform_families_full_profiles[0];
     const boards = root?.board_ids_full_profiles || [];
 
@@ -182,16 +166,14 @@ app.get("/api/stats", async (req, res) => {
     );
 
     const rankedProfile = rankedBoard?.full_profiles?.[0]?.profile || {};
-    const rankedStats =
-      rankedBoard?.full_profiles?.[0]?.season_statistics || {};
+    const rankedStats = rankedBoard?.full_profiles?.[0]?.season_statistics || {};
 
     const casualProfile = casualBoard?.full_profiles?.[0]?.profile || {};
-    const casualStats =
-      casualBoard?.full_profiles?.[0]?.season_statistics || {};
+    const casualStats = casualBoard?.full_profiles?.[0]?.season_statistics || {};
 
     /* ============================= */
-    /* 🔥 OUTPUT */
-/* ============================= */
+    /* OUTPUT */
+    /* ============================= */
     const ranked = {
       username: nameOnPlatform,
       platform: apiPlatform.toUpperCase(),
@@ -209,11 +191,10 @@ app.get("/api/stats", async (req, res) => {
       rank: getRankName(rankedProfile.rank),
       mmr: rankedProfile.rank_points ?? 0,
 
-      /* 🔥 PEAK */
       bestRank: bestRank?.rank || null,
       bestMMR: bestRank?.mmr || null,
       bestRankImg: bestRank?.image || null,
-      bestRankColor: bestRank?.color || "#ffd700",
+      bestRankColor: bestRank?.color || null,
     };
 
     const casual = {
@@ -243,7 +224,7 @@ app.get("/api/stats", async (req, res) => {
 });
 
 /* ============================= */
-/* 🔥 START */
+/* START */
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
