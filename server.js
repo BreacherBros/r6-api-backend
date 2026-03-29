@@ -16,13 +16,7 @@ app.use(
         "https://breacherbros.com",
         "https://www.breacherbros.com",
       ];
-
-      if (!origin || allowed.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Blocked by CORS:", origin);
-        callback(null, true);
-      }
+      callback(null, !origin || allowed.includes(origin));
     },
   })
 );
@@ -38,66 +32,52 @@ app.get("/", (req, res) => {
 const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
-  console.error("❌ ERROR: API_KEY is not set.");
+  console.error("❌ ERROR: API_KEY missing");
 }
 
 /* ============================= */
 /* CACHE */
 /* ============================= */
-const CACHE_TTL_MS = 30_000;
-const cache = new Map();
+const CACHE = new Map();
+const TTL = 30000;
 
 function getCache(key) {
-  const entry = cache.get(key);
+  const entry = CACHE.get(key);
   if (!entry) return null;
-
-  if (Date.now() > entry.expiresAt) {
-    cache.delete(key);
+  if (Date.now() > entry.exp) {
+    CACHE.delete(key);
     return null;
   }
-
-  return entry.value;
+  return entry.data;
 }
 
-function setCache(key, value) {
-  cache.set(key, {
-    value,
-    expiresAt: Date.now() + CACHE_TTL_MS,
-  });
+function setCache(key, data) {
+  CACHE.set(key, { data, exp: Date.now() + TTL });
 }
 
-async function fetchJson(url, cacheKey) {
-  const cached = getCache(cacheKey);
+async function fetchJson(url, key) {
+  const cached = getCache(key);
   if (cached) return cached;
 
   try {
-    const response = await fetch(url, {
+    const res = await fetch(url, {
       headers: { "api-key": API_KEY },
     });
 
-    const json = await response.json().catch(() => null);
+    const json = await res.json().catch(() => null);
 
-    const result = {
-      ok: response.ok,
-      status: response.status,
-      json,
-    };
+    const result = { ok: res.ok, json };
+    setCache(key, result);
 
-    setCache(cacheKey, result);
     return result;
-  } catch (error) {
-    console.error("❌ Fetch error:", error);
-    return {
-      ok: false,
-      status: 0,
-      json: null,
-      error,
-    };
+  } catch (err) {
+    console.error("❌ Fetch error:", err);
+    return { ok: false, json: null };
   }
 }
 
 /* ============================= */
-/* PLATFORM MAP */
+/* PLATFORM */
 /* ============================= */
 const PLATFORM_MAP = {
   psn: "psn",
@@ -110,12 +90,12 @@ const PLATFORM_MAP = {
 /* ============================= */
 /* HELPERS */
 /* ============================= */
-const calcKD = (kills, deaths) => {
-  if (kills == null || deaths == null || deaths === 0) return null;
-  return (kills / deaths).toFixed(2);
+const calcKD = (k, d) => {
+  if (!k || !d || d === 0) return null;
+  return (k / d).toFixed(2);
 };
 
-const RANK_ORDER = [
+const TIERS = [
   "COPPER",
   "BRONZE",
   "SILVER",
@@ -126,310 +106,114 @@ const RANK_ORDER = [
   "CHAMPION",
 ];
 
-const RANK_COLORS = {
-  COPPER: "#a52019",
-  BRONZE: "#a97142",
-  SILVER: "#c0c0c0",
-  GOLD: "#ffd700",
-  PLATINUM: "#4fc3f7",
-  EMERALD: "#00ff88",
-  DIAMOND: "#00e5ff",
-  CHAMPION: "#ff0000",
-};
-
 function getRankFromMMR(mmr) {
-  if (mmr == null || mmr <= 0) return { name: "UNRANKED", color: "#888" };
+  if (!mmr || mmr <= 0) return { name: "UNRANKED", color: "#888" };
 
-  let tierIndex = Math.floor((mmr - 1000) / 500);
-  tierIndex = Math.max(0, Math.min(tierIndex, RANK_ORDER.length - 1));
+  let tier = Math.floor((mmr - 1000) / 500);
+  tier = Math.max(0, Math.min(tier, TIERS.length - 1));
 
-  if (RANK_ORDER[tierIndex] === "CHAMPION") {
-    return { name: "CHAMPION", color: RANK_COLORS.CHAMPION };
+  if (TIERS[tier] === "CHAMPION") {
+    return { name: "CHAMPION", color: "#ff0000" };
   }
 
   const division = 5 - Math.floor(((mmr - 1000) % 500) / 100);
 
   return {
-    name: `${RANK_ORDER[tierIndex]} ${division}`,
-    color: RANK_COLORS[RANK_ORDER[tierIndex]] || "#fff",
+    name: `${TIERS[tier]} ${division}`,
+    color: "#fff",
   };
 }
 
-function parseRankLabel(label) {
-  if (typeof label !== "string") return null;
+function rankScore(label) {
+  if (!label) return 0;
 
-  const clean = label.trim().toUpperCase();
-  const match = clean.match(
-    /^(COPPER|BRONZE|SILVER|GOLD|PLATINUM|EMERALD|DIAMOND|CHAMPION)\s*([1-5])?$/
-  );
+  const match = label.match(/([A-Z]+)\s?([1-5])?/);
+  if (!match) return 0;
 
-  if (!match) return null;
+  const tierIndex = TIERS.indexOf(match[1]);
+  if (tierIndex < 0) return 0;
 
-  return {
-    tier: match[1],
-    division: match[2] ? Number(match[2]) : null,
-  };
+  if (match[1] === "CHAMPION") return 1000;
+
+  const div = match[2] ? 5 - Number(match[2]) : 0;
+  return tierIndex * 10 + div;
 }
 
-function formatRankLabel(label, mmr) {
-  const parsed = parseRankLabel(label);
-  if (parsed) {
-    if (parsed.tier === "CHAMPION") return "CHAMPION";
-    if (parsed.division == null) return parsed.tier;
-    return `${parsed.tier} ${parsed.division}`;
-  }
-
-  if (typeof label === "string" && label.trim()) {
-    return label.trim().toUpperCase();
-  }
-
-  return getRankFromMMR(mmr).name;
-}
-
-function rankScoreFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
-
-  const tierIndex = RANK_ORDER.indexOf(parsed.tier);
-  if (tierIndex < 0) return null;
-
-  if (parsed.tier === "CHAMPION") return 1000;
-
-  const divisionScore = parsed.division ? 5 - parsed.division : 0;
-  return tierIndex * 10 + divisionScore;
-}
-
-function rankColorFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
-  return RANK_COLORS[parsed.tier] || null;
-}
-
-function firstString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
-function firstNumber(...values) {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return null;
-}
-
+/* ============================= */
+/* PARSE STATS */
+/* ============================= */
 function parseStats(data) {
   const root = data?.platform_families_full_profiles?.[0];
   const boards = root?.board_ids_full_profiles || [];
 
-  const rankedBoard = boards.find((b) =>
+  const ranked = boards.find((b) =>
     ["pvp_ranked", "ranked"].includes(b.board_id)
   );
 
-  const casualBoard = boards.find((b) =>
+  const casual = boards.find((b) =>
     ["pvp_casual", "standard"].includes(b.board_id)
   );
 
   return {
-    rankedProfile: rankedBoard?.full_profiles?.[0]?.profile || {},
-    rankedStats: rankedBoard?.full_profiles?.[0]?.season_statistics || {},
-    casualProfile: casualBoard?.full_profiles?.[0]?.profile || {},
-    casualStats: casualBoard?.full_profiles?.[0]?.season_statistics || {},
-    rankedBoard,
-    casualBoard,
+    rankedProfile: ranked?.full_profiles?.[0]?.profile || {},
+    rankedStats: ranked?.full_profiles?.[0]?.season_statistics || {},
+    casualProfile: casual?.full_profiles?.[0]?.profile || {},
+    casualStats: casual?.full_profiles?.[0]?.season_statistics || {},
   };
 }
 
 /* ============================= */
-/* PEAK SOURCES */
+/* 🔥 PEAK FIX (FINAL) */
 /* ============================= */
-function extractHistoryArray(historyJson) {
-  if (!historyJson) return [];
+function getPeak(historyData, statsData, platform) {
+  let best = null;
 
-  if (Array.isArray(historyJson)) return historyJson;
-  if (Array.isArray(historyJson?.data?.history?.data)) return historyJson.data.history.data;
-  if (Array.isArray(historyJson?.data?.history)) return historyJson.data.history;
-  if (Array.isArray(historyJson?.history?.data)) return historyJson.history.data;
-  if (Array.isArray(historyJson?.history)) return historyJson.history;
+  const update = (mmr) => {
+    if (!mmr || mmr < 1000) return;
 
-  return [];
-}
+    const rank = getRankFromMMR(mmr).name;
+    const score = rankScore(rank);
 
-function extractPeakCandidatesFromHistory(historyJson, platform) {
-  const candidates = [];
+    if (
+      !best ||
+      score > best.score ||
+      (score === best.score && mmr > best.mmr)
+    ) {
+      best = {
+        mmr,
+        rank,
+        score,
+        platform,
+      };
+    }
+  };
 
-  for (const entry of extractHistoryArray(historyJson)) {
-    const p = Array.isArray(entry) ? entry?.[1] : entry;
-    if (!p || typeof p !== "object") continue;
+  /* 🔥 HISTORY ONLY (ECHTE DATEN) */
+  const history =
+    historyData?.data?.history?.data ||
+    historyData?.history?.data ||
+    [];
 
-    const mmr = firstNumber(
-      p?.value,
-      p?.mmr,
-      p?.rank_points,
-      p?.rankPoints,
-      p?.max_rank_points,
-      p?.maxRankPoints,
-      p?.peak_mmr,
-      p?.peakMmr,
-      p?.elo
-    );
-
-    if (mmr == null || mmr <= 0) continue;
-
-    const label = formatRankLabel(
-      firstString(
-        p?.metadata?.rank,
-        p?.rank_name,
-        p?.rankName,
-        p?.rank
-      ),
-      mmr
-    );
-
-    const score =
-      rankScoreFromLabel(label) ??
-      rankScoreFromLabel(getRankFromMMR(mmr).name) ??
-      0;
-
-    candidates.push({
-      mmr,
-      rank: label,
-      score,
-      color:
-        firstString(p?.metadata?.color, p?.color) ||
-        rankColorFromLabel(label) ||
-        getRankFromMMR(mmr).color,
-      image:
-        firstString(p?.metadata?.imageUrl, p?.imageUrl, p?.image) || null,
-      platform,
-    });
+  for (const entry of history) {
+    const p = Array.isArray(entry) ? entry[1] : entry;
+    if (typeof p?.value === "number") {
+      update(p.value);
+    }
   }
 
-  return candidates;
-}
+  /* 🔥 FALLBACK */
+  const profile =
+    statsData?.platform_families_full_profiles?.[0]
+      ?.board_ids_full_profiles?.find(b =>
+        ["pvp_ranked", "ranked"].includes(b.board_id)
+      )
+      ?.full_profiles?.[0]?.profile || {};
 
-function extractPeakCandidatesFromSeasonBoards(statsJson, platform) {
-  const candidates = [];
-
-  const root = statsJson?.platform_families_full_profiles?.[0];
-  const boards = root?.board_ids_full_profiles || [];
-
-  const rankedBoard = boards.find((b) =>
-    ["pvp_ranked", "ranked"].includes(b.board_id)
-  );
-
-  if (!rankedBoard?.full_profiles?.length) return candidates;
-
-  for (const season of rankedBoard.full_profiles) {
-    const p = season?.profile || {};
-    if (!p || typeof p !== "object") continue;
-
-    const mmr = firstNumber(
-      p?.max_rank_points,
-      p?.maxRankPoints,
-      p?.rank_points,
-      p?.rankPoints
-    );
-
-    if (mmr == null || mmr <= 0) continue;
-
-    const label = formatRankLabel(
-      firstString(
-        p?.max_rank_name,
-        p?.maxRankName,
-        p?.rank_name,
-        p?.rankName,
-        p?.metadata?.rank
-      ),
-      mmr
-    );
-
-    const score =
-      rankScoreFromLabel(label) ??
-      rankScoreFromLabel(getRankFromMMR(mmr).name) ??
-      0;
-
-    candidates.push({
-      mmr,
-      rank: label,
-      score,
-      color:
-        firstString(p?.metadata?.color, p?.color) ||
-        rankColorFromLabel(label) ||
-        getRankFromMMR(mmr).color,
-      image:
-        firstString(p?.metadata?.imageUrl, p?.imageUrl, p?.image) || null,
-      platform,
-    });
+  if (profile?.max_rank_points) {
+    update(profile.max_rank_points);
   }
 
-  return candidates;
-}
-
-function extractPeakCandidatesFromTopLevelStats(statsJson, platform) {
-  const candidates = [];
-
-  const topLevelStats = statsJson?.profiles?.[0]?.stats || {};
-  const mmr = firstNumber(
-    topLevelStats?.maxRankPoints,
-    topLevelStats?.max_rank_points,
-    topLevelStats?.rankPoints,
-    topLevelStats?.rank_points
-  );
-
-  if (mmr != null && mmr > 0) {
-    const label = formatRankLabel(
-      firstString(
-        topLevelStats?.maxRankName,
-        topLevelStats?.max_rank_name,
-        topLevelStats?.rankName,
-        topLevelStats?.rank_name
-      ),
-      mmr
-    );
-
-    const score =
-      rankScoreFromLabel(label) ??
-      rankScoreFromLabel(getRankFromMMR(mmr).name) ??
-      0;
-
-    candidates.push({
-      mmr,
-      rank: label,
-      score,
-      color:
-        rankColorFromLabel(label) ||
-        getRankFromMMR(mmr).color,
-      image: null,
-      platform,
-    });
-  }
-
-  return candidates;
-}
-
-function getBestPeakFromSources(sources, platform) {
-  const allCandidates = [];
-
-  for (const source of sources) {
-    if (!source) continue;
-
-    allCandidates.push(
-      ...extractPeakCandidatesFromHistory(source, platform),
-      ...extractPeakCandidatesFromSeasonBoards(source, platform),
-      ...extractPeakCandidatesFromTopLevelStats(source, platform)
-    );
-  }
-
-  if (!allCandidates.length) return null;
-
-  allCandidates.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return (b.mmr || 0) - (a.mmr || 0);
-  });
-
-  return allCandidates[0];
+  return best;
 }
 
 /* ============================= */
@@ -440,11 +224,7 @@ app.get("/api/stats", async (req, res) => {
     const { nameOnPlatform, platformType } = req.query;
 
     if (!nameOnPlatform || !platformType) {
-      return res.status(400).json({ error: "Missing parameters" });
-    }
-
-    if (!API_KEY) {
-      return res.status(500).json({ error: "API KEY missing" });
+      return res.status(400).json({ error: "Missing params" });
     }
 
     const platform = PLATFORM_MAP[platformType.toLowerCase()];
@@ -462,14 +242,9 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${platform}`;
 
-    const seasonalUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${platform}&platform_families=${family}`;
-
-    const [statsRes, historyRes, seasonalRes] = await Promise.all([
-      fetchJson(statsUrl, `stats:${nameOnPlatform}:${platform}`),
-      fetchJson(historyUrl, `history:${nameOnPlatform}:${platform}`),
-      fetchJson(seasonalUrl, `seasonal:${nameOnPlatform}:${platform}`),
+    const [statsRes, historyRes] = await Promise.all([
+      fetchJson(statsUrl, `stats-${nameOnPlatform}-${platform}`),
+      fetchJson(historyUrl, `hist-${nameOnPlatform}-${platform}`),
     ]);
 
     if (!statsRes.ok || !statsRes.json) {
@@ -477,14 +252,7 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const statsData = statsRes.json;
-    const historyData = historyRes?.json || null;
-    const seasonalData = seasonalRes?.json || null;
-
-    if (!statsData?.platform_families_full_profiles) {
-      return res.json({ ranked: null, casual: null });
-    }
-
-    const topLevelStats = statsData?.profiles?.[0]?.stats || {};
+    const historyData = historyRes.json;
 
     const {
       rankedProfile,
@@ -493,84 +261,37 @@ app.get("/api/stats", async (req, res) => {
       casualStats,
     } = parseStats(statsData);
 
-    const currentMMR =
-      rankedProfile.rank_points ??
-      rankedProfile.rankPoints ??
-      rankedProfile.elo ??
-      topLevelStats.rankPoints ??
-      0;
-
+    const currentMMR = rankedProfile.rank_points || 0;
     const currentRank = getRankFromMMR(currentMMR);
 
-    /* ============================= */
-    /* PEAK: nur die gewählte Plattform */
-    /* ============================= */
-    let peak = getBestPeakFromSources(
-      [historyData, seasonalData, statsData],
-      platform
-    );
+    /* 🔥 FIXED PEAK */
+    const peak = getPeak(historyData, statsData, platform);
 
-    if (!peak) {
-      const fallbackMMR =
-        rankedProfile.max_rank_points ??
-        rankedProfile.maxRankPoints ??
-        rankedProfile.rank_points ??
-        rankedProfile.rankPoints ??
-        0;
+    const peakMMR =
+      peak?.mmr ||
+      rankedProfile.max_rank_points ||
+      currentMMR;
 
-      if (fallbackMMR > 0) {
-        const fallbackLabel =
-          formatRankLabel(
-            firstString(
-              rankedProfile.max_rank_name,
-              rankedProfile.maxRankName,
-              rankedProfile.max_rank,
-              rankedProfile.rank_name,
-              rankedProfile.rankName
-            ),
-            fallbackMMR
-          ) || getRankFromMMR(fallbackMMR).name;
-
-        peak = {
-          mmr: fallbackMMR,
-          rank: fallbackLabel,
-          score: rankScoreFromLabel(fallbackLabel) ?? 0,
-          color:
-            rankColorFromLabel(fallbackLabel) ||
-            getRankFromMMR(fallbackMMR).color,
-          image: null,
-          platform,
-        };
-      }
-    }
-
-    const peakMMR = peak?.mmr ?? null;
     const peakRank =
       peak?.rank ||
-      (peakMMR ? getRankFromMMR(peakMMR).name : "UNRANKED");
+      getRankFromMMR(peakMMR).name;
 
+    /* ============================= */
+    /* OUTPUT */
+/* ============================= */
     const ranked = {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
-      kills: rankedStats.kills ?? rankedProfile.kills ?? topLevelStats.kills ?? 0,
-      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? topLevelStats.deaths ?? 0,
+      kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
+      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
       kd: calcKD(
-        rankedStats.kills ?? rankedProfile.kills ?? topLevelStats.kills,
-        rankedStats.deaths ?? rankedProfile.deaths ?? topLevelStats.deaths
+        rankedStats.kills ?? rankedProfile.kills,
+        rankedStats.deaths ?? rankedProfile.deaths
       ),
 
-      wins:
-        rankedStats.match_outcomes?.wins ??
-        rankedProfile.wins ??
-        topLevelStats.matchesWon ??
-        0,
-
-      losses:
-        rankedStats.match_outcomes?.losses ??
-        rankedProfile.losses ??
-        topLevelStats.matchesLost ??
-        0,
+      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
+      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
 
       rank: currentRank.name,
       mmr: currentMMR,
@@ -578,8 +299,6 @@ app.get("/api/stats", async (req, res) => {
       bestRank: peakRank,
       bestMMR: peakMMR,
       bestPlatform: peak?.platform || platform,
-      bestRankImg: peak?.image || null,
-      bestRankColor: peak?.color || currentRank.color,
     };
 
     const casual = {
@@ -602,6 +321,7 @@ app.get("/api/stats", async (req, res) => {
 
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
+
   } catch (err) {
     console.error("❌ SERVER ERROR:", err);
     res.status(500).json({ error: "Server error" });
@@ -613,5 +333,5 @@ app.get("/api/stats", async (req, res) => {
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Backend running on port ${PORT}`);
+  console.log("Backend running on port", PORT);
 });
