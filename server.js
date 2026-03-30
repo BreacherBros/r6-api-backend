@@ -152,11 +152,22 @@ app.get("/api/stats", async (req, res) => {
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${nameOnPlatform}&platformType=${platform}`;
     const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${nameOnPlatform}&platformType=${platform}`;
 
-    const [statsRes, historyRes, trackerPeak] = await Promise.all([
-      fetchJson(statsUrl, "stats"),
-      fetchJson(historyUrl, "hist"),
-      getTrackerPeak(nameOnPlatform, platform),
-    ]);
+const [statsRes, historyRes] = await Promise.all([
+  fetchJson(statsUrl, `stats-${nameOnPlatform}-${platform}`),
+  fetchJson(historyUrl, `hist-${nameOnPlatform}-${platform}`),
+]);
+
+/* 🔥 Tracker NON-BLOCKING */
+let trackerPeak = null;
+
+try {
+  trackerPeak = await Promise.race([
+    getTrackerPeak(nameOnPlatform, platform),
+    new Promise((resolve) => setTimeout(() => resolve(null), 1500)), // 1.5s timeout
+  ]);
+} catch {
+  trackerPeak = null;
+}
 
     const stats = statsRes.json;
     const history = historyRes.json;
