@@ -37,6 +37,8 @@ app.get("/", (req, res) => {
 /* ============================= */
 const API_KEY = process.env.API_KEY;
 const TRN_API_KEY = process.env.TRN_API_KEY;
+const UBI_MAIL = process.env.UBI_MAIL;
+const UBI_PASSWORD = process.env.UBI_PASSWORD;
 
 /* ============================= */
 /* CACHE */
@@ -72,14 +74,9 @@ async function fetchJson(url, key, headers = {}) {
 
   try {
     const res = await fetch(url, { headers });
-
     const json = await res.json().catch(() => null);
 
-    const result = {
-      ok: res.ok,
-      json,
-    };
-
+    const result = { ok: res.ok, json };
     setCache(key, result);
 
     return result;
@@ -90,7 +87,57 @@ async function fetchJson(url, key, headers = {}) {
 }
 
 /* ============================= */
-/* TRACKER (SAFE + TIMEOUT) */
+/* 🔐 UBISOFT LOGIN */
+/* ============================= */
+async function ubiLogin() {
+  if (!UBI_MAIL || !UBI_PASSWORD) return null;
+
+  try {
+    const res = await fetch(
+      "https://public-ubiservices.ubi.com/v3/profiles/sessions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Ubi-AppId": "86263886-327a-4328-ac69-527f0d20a237",
+          Authorization:
+            "Basic " +
+            Buffer.from(`${UBI_MAIL}:${UBI_PASSWORD}`).toString("base64"),
+        },
+      }
+    );
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      console.log("❌ Ubisoft Login failed");
+      return null;
+    }
+
+    return {
+      ticket: json?.ticket,
+      profileId: json?.profileId,
+    };
+  } catch (err) {
+    console.log("❌ Ubisoft error:", err.message);
+    return null;
+  }
+}
+
+/* ============================= */
+/* 🧪 DEBUG UBISOFT */
+/* ============================= */
+app.get("/api/test-ubi", async (req, res) => {
+  const login = await ubiLogin();
+
+  res.json({
+    success: !!login,
+    data: login,
+  });
+});
+
+/* ============================= */
+/* TRACKER (SAFE) */
 /* ============================= */
 async function getTrackerPeak(name, platform) {
   if (!TRN_API_KEY) return null;
@@ -194,9 +241,6 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Invalid platform" });
     }
 
-    /* ============================= */
-    /* FETCH CORE DATA */
-/* ============================= */
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
     )}&platformType=${platform}`;
@@ -205,17 +249,18 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${platform}`;
 
-    const [statsRes, historyRes] = await Promise.all([
+    const [statsRes, historyRes, trackerPeak] = await Promise.all([
       fetchJson(statsUrl, `stats-${nameOnPlatform}-${platform}`),
       fetchJson(historyUrl, `hist-${nameOnPlatform}-${platform}`),
+      Promise.race([
+        getTrackerPeak(nameOnPlatform, platform),
+        new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+      ]),
     ]);
 
     const stats = statsRes.json;
     const history = historyRes.json;
 
-    /* ============================= */
-    /* SAFE PROFILE PARSE */
-/* ============================= */
     const profile =
       stats?.platform_families_full_profiles?.[0]
         ?.board_ids_full_profiles?.find((b) =>
@@ -231,35 +276,14 @@ app.get("/api/stats", async (req, res) => {
 
     const currentRank = getRankFromMMR(currentMMR);
 
-    /* ============================= */
-    /* PEAK SYSTEM */
-/* ============================= */
-
     const r6Peak = getR6Peak(history);
 
-    let trackerPeak = null;
-
-    try {
-      trackerPeak = await Promise.race([
-        getTrackerPeak(nameOnPlatform, platform),
-        new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
-      ]);
-    } catch {
-      trackerPeak = null;
-    }
-
     let bestMMR = Math.max(r6Peak || 0, trackerPeak?.mmr || 0);
-
     if (!bestMMR) bestMMR = currentMMR;
 
     const bestRank =
       trackerPeak?.rank ||
       getRankFromMMR(bestMMR);
-
-    /* ============================= */
-    /* RESPONSE */
-/* ============================= */
-    res.setHeader("Cache-Control", "no-store");
 
     res.json({
       ranked: {
