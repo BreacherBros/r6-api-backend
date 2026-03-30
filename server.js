@@ -315,7 +315,73 @@ app.get("/api/stats", async (req, res) => {
     /* ============================= */
     /* PEAK: nur die gewählte Plattform */
     /* ============================= */
-   
+       /* ============================= */
+    /* KEIN PEAK – DIREKTER RESPONSE */
+    /* ============================= */
+
+    const ranked = {
+      username: nameOnPlatform,
+      platform: platform.toUpperCase(),
+
+      kills:
+        rankedStats.kills ??
+        rankedProfile.kills ??
+        topLevelStats.kills ??
+        0,
+
+      deaths:
+        rankedStats.deaths ??
+        rankedProfile.deaths ??
+        topLevelStats.deaths ??
+        0,
+
+      kd: calcKD(
+        rankedStats.kills ?? rankedProfile.kills ?? topLevelStats.kills,
+        rankedStats.deaths ?? rankedProfile.deaths ?? topLevelStats.deaths
+      ),
+
+      wins:
+        rankedStats.match_outcomes?.wins ??
+        rankedProfile.wins ??
+        topLevelStats.matchesWon ??
+        0,
+
+      losses:
+        rankedStats.match_outcomes?.losses ??
+        rankedProfile.losses ??
+        topLevelStats.matchesLost ??
+        0,
+
+      rank: currentRank.name,
+      mmr: currentMMR,
+    };
+
+    const casual = {
+      username: nameOnPlatform,
+      platform: platform.toUpperCase(),
+
+      kills: casualStats.kills ?? casualProfile.kills ?? 0,
+      deaths: casualStats.deaths ?? casualProfile.deaths ?? 0,
+      kd: calcKD(
+        casualStats.kills ?? casualProfile.kills,
+        casualStats.deaths ?? casualProfile.deaths
+      ),
+
+      wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
+      losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
+
+      rank: "UNRANKED",
+      mmr: null,
+    };
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ranked, casual });
+
+  } catch (err) {
+    console.error("❌ SERVER ERROR:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
 
 /* ============================= */
 /* START */
