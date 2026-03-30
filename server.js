@@ -37,8 +37,6 @@ app.get("/", (req, res) => {
 /* ============================= */
 const API_KEY = process.env.API_KEY;
 const TRN_API_KEY = process.env.TRN_API_KEY;
-const UBI_MAIL = process.env.UBI_MAIL;
-const UBI_PASSWORD = process.env.UBI_PASSWORD;
 
 /* ============================= */
 /* CACHE */
@@ -47,17 +45,22 @@ const CACHE = new Map();
 const TTL = 30000;
 
 function getCache(key) {
-  const e = CACHE.get(key);
-  if (!e) return null;
-  if (Date.now() > e.exp) {
+  const entry = CACHE.get(key);
+  if (!entry) return null;
+
+  if (Date.now() > entry.exp) {
     CACHE.delete(key);
     return null;
   }
-  return e.data;
+
+  return entry.data;
 }
 
 function setCache(key, data) {
-  CACHE.set(key, { data, exp: Date.now() + TTL });
+  CACHE.set(key, {
+    data,
+    exp: Date.now() + TTL,
+  });
 }
 
 /* ============================= */
@@ -69,37 +72,50 @@ async function fetchJson(url, key, headers = {}) {
 
   try {
     const res = await fetch(url, { headers });
+
     const json = await res.json().catch(() => null);
 
-    const result = { ok: res.ok, json };
+    const result = {
+      ok: res.ok,
+      json,
+    };
+
     setCache(key, result);
 
     return result;
-  } catch {
+  } catch (err) {
+    console.error("❌ Fetch error:", err);
     return { ok: false, json: null };
   }
 }
 
 /* ============================= */
-/* TRACKER PEAK */
+/* TRACKER (SAFE + TIMEOUT) */
 /* ============================= */
 async function getTrackerPeak(name, platform) {
   if (!TRN_API_KEY) return null;
 
   try {
-    const url = `https://api.tracker.gg/api/v2/r6siege/standard/profile/${platform}/${name}`;
-    const res = await fetchJson(url, `trn-${name}`, {
-      "TRN-Api-Key": TRN_API_KEY,
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
 
-    if (!res.ok || !res.json) return null;
+    const res = await fetch(
+      `https://api.tracker.gg/api/v2/r6siege/standard/profile/${platform}/${name}`,
+      {
+        headers: { "TRN-Api-Key": TRN_API_KEY },
+        signal: controller.signal,
+      }
+    );
 
-    const segments = res.json?.data?.segments || [];
+    clearTimeout(timeout);
 
-    const lifetime = segments.find((s) => s.type === "overview");
+    const json = await res.json().catch(() => null);
+    if (!json) return null;
 
-    const peak = lifetime?.stats?.highestRank;
+    const segments = json?.data?.segments || [];
+    const overview = segments.find((s) => s.type === "overview");
 
+    const peak = overview?.stats?.highestRank;
     if (!peak) return null;
 
     return {
@@ -119,12 +135,41 @@ function getR6Peak(history) {
 
   const arr = history?.data?.history?.data || [];
 
-  for (const e of arr) {
-    const val = e?.[1]?.value;
-    if (val > best) best = val;
+  for (const entry of arr) {
+    const val = entry?.[1]?.value;
+    if (typeof val === "number" && val > best) {
+      best = val;
+    }
   }
 
   return best || null;
+}
+
+/* ============================= */
+/* RANK CALC */
+/* ============================= */
+const TIERS = [
+  "COPPER",
+  "BRONZE",
+  "SILVER",
+  "GOLD",
+  "PLATINUM",
+  "EMERALD",
+  "DIAMOND",
+  "CHAMPION",
+];
+
+function getRankFromMMR(mmr) {
+  if (!mmr || mmr <= 0) return "UNRANKED";
+
+  let tier = Math.floor((mmr - 1000) / 500);
+  tier = Math.max(0, Math.min(tier, TIERS.length - 1));
+
+  if (TIERS[tier] === "CHAMPION") return "CHAMPION";
+
+  const division = 5 - Math.floor(((mmr - 1000) % 500) / 100);
+
+  return `${TIERS[tier]} ${division}`;
 }
 
 /* ============================= */
@@ -144,45 +189,64 @@ app.get("/api/stats", async (req, res) => {
       pc: "uplay",
     };
 
-    const platform = platformMap[platformType];
+    const platform = platformMap[platformType.toLowerCase()];
+    if (!platform) {
+      return res.status(400).json({ error: "Invalid platform" });
+    }
 
     /* ============================= */
-    /* FETCH DATA */
+    /* FETCH CORE DATA */
 /* ============================= */
-    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${nameOnPlatform}&platformType=${platform}`;
-    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${nameOnPlatform}&platformType=${platform}`;
+    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
+      nameOnPlatform
+    )}&platformType=${platform}`;
 
-const [statsRes, historyRes] = await Promise.all([
-  fetchJson(statsUrl, `stats-${nameOnPlatform}-${platform}`),
-  fetchJson(historyUrl, `hist-${nameOnPlatform}-${platform}`),
-]);
+    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(
+      nameOnPlatform
+    )}&platformType=${platform}`;
 
-/* 🔥 Tracker NON-BLOCKING */
-let trackerPeak = null;
-
-try {
-  trackerPeak = await Promise.race([
-    getTrackerPeak(nameOnPlatform, platform),
-    new Promise((resolve) => setTimeout(() => resolve(null), 1500)), // 1.5s timeout
-  ]);
-} catch {
-  trackerPeak = null;
-}
+    const [statsRes, historyRes] = await Promise.all([
+      fetchJson(statsUrl, `stats-${nameOnPlatform}-${platform}`),
+      fetchJson(historyUrl, `hist-${nameOnPlatform}-${platform}`),
+    ]);
 
     const stats = statsRes.json;
     const history = historyRes.json;
 
+    /* ============================= */
+    /* SAFE PROFILE PARSE */
+/* ============================= */
     const profile =
       stats?.platform_families_full_profiles?.[0]
-        ?.board_ids_full_profiles?.[0]?.full_profiles?.[0]?.profile || {};
+        ?.board_ids_full_profiles?.find((b) =>
+          ["pvp_ranked", "ranked"].includes(b.board_id)
+        )
+        ?.full_profiles?.[0]?.profile || {};
 
-    const currentMMR = profile.rank_points || 0;
+    const currentMMR =
+      profile.rank_points ||
+      profile.rankPoints ||
+      profile.elo ||
+      0;
+
+    const currentRank = getRankFromMMR(currentMMR);
 
     /* ============================= */
-    /* PEAK LOGIC */
+    /* PEAK SYSTEM */
 /* ============================= */
 
     const r6Peak = getR6Peak(history);
+
+    let trackerPeak = null;
+
+    try {
+      trackerPeak = await Promise.race([
+        getTrackerPeak(nameOnPlatform, platform),
+        new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+      ]);
+    } catch {
+      trackerPeak = null;
+    }
 
     let bestMMR = Math.max(r6Peak || 0, trackerPeak?.mmr || 0);
 
@@ -190,25 +254,28 @@ try {
 
     const bestRank =
       trackerPeak?.rank ||
-      (bestMMR ? `MMR ${bestMMR}` : "UNRANKED");
+      getRankFromMMR(bestMMR);
 
     /* ============================= */
     /* RESPONSE */
 /* ============================= */
+    res.setHeader("Cache-Control", "no-store");
+
     res.json({
       ranked: {
         username: nameOnPlatform,
         platform: platform.toUpperCase(),
 
         mmr: currentMMR,
-        rank: `MMR ${currentMMR}`,
+        rank: currentRank,
 
         bestMMR,
         bestRank,
+        bestSource: trackerPeak ? "tracker" : "r6data",
       },
     });
   } catch (err) {
-    console.error(err);
+    console.error("❌ SERVER ERROR:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -216,6 +283,7 @@ try {
 /* ============================= */
 /* START */
 /* ============================= */
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running");
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Backend running on port ${PORT}`);
 });
