@@ -1,6 +1,7 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import fs from "fs";
 import youtubeRoutes from "./youtube.js";
 import tiktokRoutes from "./tiktok.js";
 
@@ -111,14 +112,8 @@ const calcKD = (kills, deaths) => {
 };
 
 const TIERS = [
-  "COPPER",
-  "BRONZE",
-  "SILVER",
-  "GOLD",
-  "PLATINUM",
-  "EMERALD",
-  "DIAMOND",
-  "CHAMPION",
+  "COPPER","BRONZE","SILVER","GOLD",
+  "PLATINUM","EMERALD","DIAMOND","CHAMPION"
 ];
 
 const RANK_COLORS = {
@@ -150,74 +145,43 @@ function getRankFromMMR(mmr) {
   };
 }
 
-function parseRankLabel(label) {
-  if (typeof label !== "string") return null;
+/* ============================= */
+/* 💾 PEAK DATABASE */
+/* ============================= */
+const DB_FILE = "./peaks.json";
 
-  const clean = label.trim().toUpperCase();
-  const match = clean.match(
-    /^(COPPER|BRONZE|SILVER|GOLD|PLATINUM|EMERALD|DIAMOND|CHAMPION)\s*([1-5])?$/
-  );
-
-  if (!match) return null;
-
-  return {
-    tier: match[1],
-    division: match[2] ? Number(match[2]) : null,
-  };
+function loadDB() {
+  try {
+    if (!fs.existsSync(DB_FILE)) return {};
+    return JSON.parse(fs.readFileSync(DB_FILE));
+  } catch {
+    return {};
+  }
 }
 
-function formatRankLabel(label, mmr) {
-  const parsed = parseRankLabel(label);
-  if (parsed) {
-    if (parsed.tier === "CHAMPION") return "CHAMPION";
-    if (parsed.division == null) return parsed.tier;
-    return `${parsed.tier} ${parsed.division}`;
+function saveDB(db) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+
+function updatePeakDB(username, platform, mmr) {
+  const db = loadDB();
+  const key = `${username}_${platform}`;
+
+  if (!db[key] || mmr > db[key].mmr) {
+    db[key] = {
+      mmr,
+      rank: getRankFromMMR(mmr).name,
+      updatedAt: new Date().toISOString(),
+    };
+    saveDB(db);
   }
 
-  if (typeof label === "string" && label.trim()) {
-    return label.trim().toUpperCase();
-  }
-
-  return getRankFromMMR(mmr).name;
+  return db[key];
 }
 
-function rankScoreFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
-
-  const tierIndex = TIERS.indexOf(parsed.tier);
-  if (tierIndex < 0) return null;
-
-  if (parsed.tier === "CHAMPION") return 1000;
-
-  const divisionScore = parsed.division ? 5 - parsed.division : 0;
-  return tierIndex * 10 + divisionScore;
-}
-
-function rankColorFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
-  return RANK_COLORS[parsed.tier] || null;
-}
-
-function firstString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
-function firstNumber(...values) {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim() !== "") {
-      const n = Number(value);
-      if (Number.isFinite(n)) return n;
-    }
-  }
-  return null;
-}
-
+/* ============================= */
+/* PARSE STATS */
+/* ============================= */
 function parseStats(data) {
   const root = data?.platform_families_full_profiles?.[0];
   const boards = root?.board_ids_full_profiles || [];
@@ -239,123 +203,6 @@ function parseStats(data) {
 }
 
 /* ============================= */
-/* PEAK EXTRACTION */
-/* ============================= */
-/*
-  Priority:
-  1) seasonalStats
-  2) history
-  3) stats fallback
-
-  Important:
-  - Only rank-related nodes are considered
-  - No scanning of unrelated numbers like kills, damage, time played
-  - Only selected platform is used
-*/
-function collectPeakCandidates(source, platform, sourceTag) {
-  if (!source) return [];
-
-  const candidates = [];
-  const seen = new WeakSet();
-  const sourceWeight =
-    sourceTag === "seasonal" ? 3 : sourceTag === "history" ? 2 : 1;
-
-  function isRankPointsNode(node) {
-    const displayName = firstString(node?.displayName, node?.display_name);
-    const metadataKey = firstString(node?.metadata?.key, node?.key);
-
-    return (
-      displayName === "Rank Points" ||
-      metadataKey === "RankPoints" ||
-      metadataKey === "rankpoints" ||
-      Object.prototype.hasOwnProperty.call(node, "rank_points") ||
-      Object.prototype.hasOwnProperty.call(node, "rankPoints") ||
-      Object.prototype.hasOwnProperty.call(node, "max_rank_points") ||
-      Object.prototype.hasOwnProperty.call(node, "maxRankPoints")
-    );
-  }
-
-  function walk(node) {
-    if (!node || typeof node !== "object") return;
-    if (seen.has(node)) return;
-    seen.add(node);
-
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
-
-    if (isRankPointsNode(node)) {
-      const mmr = firstNumber(
-        node?.value,
-        node?.mmr,
-        node?.rank_points,
-        node?.rankPoints,
-        node?.max_rank_points,
-        node?.maxRankPoints
-      );
-
-      if (mmr != null && mmr > 0) {
-        const label = formatRankLabel(
-          firstString(
-            node?.metadata?.rank,
-            node?.rank_name,
-            node?.rankName,
-            typeof node?.rank === "string" ? node.rank : null
-          ),
-          mmr
-        );
-
-        const score =
-          rankScoreFromLabel(label) ??
-          rankScoreFromLabel(getRankFromMMR(mmr).name) ??
-          0;
-
-        candidates.push({
-          mmr,
-          rank: label,
-          score,
-          color:
-            firstString(node?.metadata?.color, node?.color) ||
-            rankColorFromLabel(label) ||
-            getRankFromMMR(mmr).color,
-          image:
-            firstString(node?.metadata?.imageUrl, node?.imageUrl, node?.image) ||
-            null,
-          platform,
-          sourceWeight,
-        });
-      }
-    }
-
-    for (const value of Object.values(node)) {
-      walk(value);
-    }
-  }
-
-  walk(source);
-  return candidates;
-}
-
-function getBestPeakFromSources(sources, platform) {
-  const allCandidates = [];
-
-  for (const { source, tag } of sources) {
-    allCandidates.push(...collectPeakCandidates(source, platform, tag));
-  }
-
-  if (!allCandidates.length) return null;
-
-  allCandidates.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (b.sourceWeight !== a.sourceWeight) return b.sourceWeight - a.sourceWeight;
-    return (b.mmr || 0) - (a.mmr || 0);
-  });
-
-  return allCandidates[0];
-}
-
-/* ============================= */
 /* API */
 /* ============================= */
 app.get("/api/stats", async (req, res) => {
@@ -366,10 +213,6 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Missing params" });
     }
 
-    if (!API_KEY) {
-      return res.status(500).json({ error: "API KEY missing" });
-    }
-
     const platform = PLATFORM_MAP[platformType.toLowerCase()];
     if (!platform) {
       return res.status(400).json({ error: "Invalid platform" });
@@ -377,37 +220,15 @@ app.get("/api/stats", async (req, res) => {
 
     const family = platform === "uplay" ? "pc" : "console";
 
-    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${platform}&platform_families=${family}`;
+    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platform}&platform_families=${family}`;
 
-    const historyUrl = `https://r6data.eu/api/stats?type=history&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${platform}`;
-
-    const seasonalUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${platform}&platform_families=${family}`;
-
-    const [statsRes, historyRes, seasonalRes] = await Promise.all([
-      fetchJson(statsUrl, `stats:${nameOnPlatform}:${platform}`),
-      fetchJson(historyUrl, `history:${nameOnPlatform}:${platform}`),
-      fetchJson(seasonalUrl, `seasonal:${nameOnPlatform}:${platform}`),
-    ]);
+    const statsRes = await fetchJson(statsUrl, `stats:${nameOnPlatform}:${platform}`);
 
     if (!statsRes.ok || !statsRes.json) {
       return res.json({ ranked: null, casual: null });
     }
 
     const statsData = statsRes.json;
-    const historyData = historyRes?.json || null;
-    const seasonalData = seasonalRes?.json || null;
-
-    if (!statsData?.platform_families_full_profiles) {
-      return res.json({ ranked: null, casual: null });
-    }
-
-    const topLevelStats = statsData?.profiles?.[0]?.stats || {};
 
     const {
       rankedProfile,
@@ -416,67 +237,46 @@ app.get("/api/stats", async (req, res) => {
       casualStats,
     } = parseStats(statsData);
 
-    const currentMMR =
-      rankedProfile.rank_points ??
-      rankedProfile.rankPoints ??
-      rankedProfile.elo ??
-      topLevelStats.rankPoints ??
-      topLevelStats.elo ??
-      0;
-
+    const currentMMR = rankedProfile.rank_points || 0;
     const currentRank = getRankFromMMR(currentMMR);
 
-    const peak = getBestPeakFromSources(
-      [
-        { source: seasonalData, tag: "seasonal" },
-        { source: historyData, tag: "history" },
-        { source: statsData, tag: "stats" },
-      ],
-      platform
-    );
+    /* ============================= */
+    /* 🔥 FINAL PEAK SYSTEM */
+    /* ============================= */
 
-    const peakMMR = peak?.mmr ?? null;
-    const peakRank =
-      peak?.rank || (peakMMR ? getRankFromMMR(peakMMR).name : "UNRANKED");
+    // API Peak (dein bestehendes System bleibt)
+    const apiPeakMMR =
+      rankedProfile.max_rank_points ||
+      currentMMR;
+
+    // DB Peak (persistent)
+    const dbPeak = updatePeakDB(nameOnPlatform, platform, currentMMR);
+
+    // FINAL PEAK = BEST OF BOTH
+    const finalMMR = Math.max(apiPeakMMR || 0, dbPeak?.mmr || 0);
+
+    const finalRank = getRankFromMMR(finalMMR);
 
     const ranked = {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
-      kills:
-        rankedStats.kills ??
-        rankedProfile.kills ??
-        topLevelStats.kills ??
-        0,
-      deaths:
-        rankedStats.deaths ??
-        rankedProfile.deaths ??
-        topLevelStats.deaths ??
-        0,
+      kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
+      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
       kd: calcKD(
-        rankedStats.kills ?? rankedProfile.kills ?? topLevelStats.kills,
-        rankedStats.deaths ?? rankedProfile.deaths ?? topLevelStats.deaths
+        rankedStats.kills ?? rankedProfile.kills,
+        rankedStats.deaths ?? rankedProfile.deaths
       ),
 
-      wins:
-        rankedStats.match_outcomes?.wins ??
-        rankedProfile.wins ??
-        topLevelStats.matchesWon ??
-        0,
-      losses:
-        rankedStats.match_outcomes?.losses ??
-        rankedProfile.losses ??
-        topLevelStats.matchesLost ??
-        0,
+      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
+      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
 
       rank: currentRank.name,
       mmr: currentMMR,
 
-      bestRank: peakRank,
-      bestMMR: peakMMR,
-      bestPlatform: peak?.platform || platform,
-      bestRankImg: peak?.image || null,
-      bestRankColor: peak?.color || currentRank.color,
+      /* 🔥 PERFEKTER PEAK */
+      bestRank: finalRank.name,
+      bestMMR: finalMMR,
     };
 
     const casual = {
@@ -499,6 +299,7 @@ app.get("/api/stats", async (req, res) => {
 
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
+
   } catch (err) {
     console.error("❌ SERVER ERROR:", err);
     res.status(500).json({ error: "Server error" });
