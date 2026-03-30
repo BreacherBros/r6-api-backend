@@ -1,7 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
-import fs from "fs";
 import youtubeRoutes from "./youtube.js";
 import tiktokRoutes from "./tiktok.js";
 
@@ -17,13 +16,7 @@ app.use(
         "https://breacherbros.com",
         "https://www.breacherbros.com",
       ];
-
-      if (!origin || allowed.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Blocked by CORS:", origin);
-        callback(null, true);
-      }
+      callback(null, !origin || allowed.includes(origin));
     },
   })
 );
@@ -36,65 +29,103 @@ app.get("/", (req, res) => {
   res.send("Backend running");
 });
 
+/* ============================= */
+/* ENV */
+/* ============================= */
 const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  console.error("❌ ERROR: API_KEY missing");
-}
+const UBI_EMAIL = process.env.UBI_EMAIL;
+const UBI_PASSWORD = process.env.UBI_PASSWORD;
 
 /* ============================= */
-/* CACHE */
+/* UBISOFT AUTH */
 /* ============================= */
-const CACHE_TTL_MS = 30000;
-const cache = new Map();
+let ubiSession = {
+  ticket: null,
+  expires: 0,
+};
 
-function getCache(key) {
-  const entry = cache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    cache.delete(key);
-    return null;
-  }
-  return entry.value;
-}
-
-function setCache(key, value) {
-  cache.set(key, {
-    value,
-    expiresAt: Date.now() + CACHE_TTL_MS,
-  });
-}
-
-async function fetchJson(url, key) {
-  const cached = getCache(key);
-  if (cached) return cached;
-
+async function loginUbisoft() {
   try {
-    const res = await fetch(url, {
-      headers: { "api-key": API_KEY },
+    const basic = Buffer.from(`${UBI_EMAIL}:${UBI_PASSWORD}`).toString("base64");
+
+    const res = await fetch("https://public-ubiservices.ubi.com/v3/profiles/sessions", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basic}`,
+        "Ubi-AppId": "86263886-327a-4328-ac69-527f0d20a237",
+        "Content-Type": "application/json",
+      },
     });
 
-    const json = await res.json().catch(() => null);
+    const json = await res.json();
 
-    const result = { ok: res.ok, status: res.status, json };
-    setCache(key, result);
-    return result;
+    ubiSession.ticket = json.ticket;
+    ubiSession.expires = Date.now() + 1000 * 60 * 30;
+
+    console.log("✅ Ubisoft login success");
   } catch (err) {
-    console.error("❌ Fetch error:", err);
-    return { ok: false, status: 0, json: null };
+    console.error("❌ Ubisoft login failed", err);
   }
 }
 
+async function getUbiSession() {
+  if (!ubiSession.ticket || Date.now() > ubiSession.expires) {
+    await loginUbisoft();
+  }
+  return ubiSession.ticket;
+}
+
 /* ============================= */
-/* PLATFORM */
+/* UBISOFT FETCH PEAK */
 /* ============================= */
-const PLATFORM_MAP = {
-  psn: "psn",
-  xbox: "xbl",
-  xbl: "xbl",
-  pc: "uplay",
-  uplay: "uplay",
-};
+async function fetchUbisoftPeak(username, platform) {
+  try {
+    const ticket = await getUbiSession();
+    if (!ticket) return null;
+
+    // 1. Profil holen
+    const profileRes = await fetch(
+      `https://public-ubiservices.ubi.com/v2/profiles?nameOnPlatform=${username}&platformType=${platform}`,
+      {
+        headers: {
+          Authorization: `Ubi_v1 t=${ticket}`,
+          "Ubi-AppId": "86263886-327a-4328-ac69-527f0d20a237",
+        },
+      }
+    );
+
+    const profileJson = await profileRes.json();
+    const profileId = profileJson?.profiles?.[0]?.profileId;
+
+    if (!profileId) return null;
+
+    // 2. Stats holen (inkl. Peak)
+    const statsRes = await fetch(
+      `https://public-ubiservices.ubi.com/v1/spaces/5172a3e5-9c42-4f7c-b79c-7a7b1c54c6b3/sandboxes/OSBOR_PC_LNCH_A/stats/playerstats2/stattypes/rankPoints?profileIds=${profileId}`,
+      {
+        headers: {
+          Authorization: `Ubi_v1 t=${ticket}`,
+          "Ubi-AppId": "86263886-327a-4328-ac69-527f0d20a237",
+        },
+      }
+    );
+
+    const statsJson = await statsRes.json();
+
+    const stats = statsJson?.results?.[profileId];
+    if (!stats) return null;
+
+    const maxMMR =
+      stats?.max_rank_points ||
+      stats?.maxRankPoints ||
+      null;
+
+    return maxMMR;
+  } catch (err) {
+    console.error("❌ Ubisoft peak fetch failed", err);
+    return null;
+  }
+}
 
 /* ============================= */
 /* RANK SYSTEM */
@@ -117,87 +148,37 @@ function getRankFromMMR(mmr) {
 }
 
 /* ============================= */
-/* 💾 PEAK DATABASE */
+/* R6DATA FETCH */
 /* ============================= */
-const DB_FILE = "./peaks.json";
-
-function loadDB() {
+async function fetchR6Data(name, platform) {
   try {
-    if (!fs.existsSync(DB_FILE)) return {};
-    return JSON.parse(fs.readFileSync(DB_FILE));
-  } catch {
-    return {};
-  }
-}
+    const family = platform === "uplay" ? "pc" : "console";
 
-function saveDB(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
+    const url = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(name)}&platformType=${platform}&platform_families=${family}`;
 
-function getKey(username, platform) {
-  return `${username}_${platform}`;
-}
+    const res = await fetch(url, {
+      headers: { "api-key": API_KEY },
+    });
 
-function updatePeak(username, platform, mmr) {
-  const db = loadDB();
-  const key = getKey(username, platform);
+    const json = await res.json();
 
-  if (!db[key] || mmr > db[key].mmr) {
-    db[key] = {
-      mmr,
-      rank: getRankFromMMR(mmr),
-      updatedAt: new Date().toISOString(),
+    const profile =
+      json?.platform_families_full_profiles?.[0]
+        ?.board_ids_full_profiles?.find(b =>
+          ["pvp_ranked", "ranked"].includes(b.board_id)
+        )
+        ?.full_profiles?.[0]?.profile || {};
+
+    return {
+      mmr: profile.rank_points || 0,
+      kills: profile.kills || 0,
+      deaths: profile.deaths || 0,
+      wins: profile.wins || 0,
+      losses: profile.losses || 0,
     };
-    saveDB(db);
+  } catch {
+    return null;
   }
-
-  return db[key];
-}
-
-function getStoredPeak(username, platform) {
-  const db = loadDB();
-  return db[getKey(username, platform)] || null;
-}
-
-/* ============================= */
-/* 🔥 MANUAL PEAK IMPORT (TRACKER) */
-/* ============================= */
-app.post("/api/setPeak", (req, res) => {
-  const { username, platform, mmr } = req.body;
-
-  if (!username || !platform || !mmr) {
-    return res.status(400).json({ error: "Missing data" });
-  }
-
-  const peak = updatePeak(username, platform, mmr);
-
-  res.json({
-    success: true,
-    peak,
-  });
-});
-
-/* ============================= */
-/* PARSE STATS */
-/* ============================= */
-function parseStats(data) {
-  const root = data?.platform_families_full_profiles?.[0];
-  const boards = root?.board_ids_full_profiles || [];
-
-  const rankedBoard = boards.find((b) =>
-    ["pvp_ranked", "ranked"].includes(b.board_id)
-  );
-
-  const casualBoard = boards.find((b) =>
-    ["pvp_casual", "standard"].includes(b.board_id)
-  );
-
-  return {
-    rankedProfile: rankedBoard?.full_profiles?.[0]?.profile || {},
-    rankedStats: rankedBoard?.full_profiles?.[0]?.season_statistics || {},
-    casualProfile: casualBoard?.full_profiles?.[0]?.profile || {},
-    casualStats: casualBoard?.full_profiles?.[0]?.season_statistics || {},
-  };
 }
 
 /* ============================= */
@@ -211,104 +192,46 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Missing params" });
     }
 
-    const platform = PLATFORM_MAP[platformType.toLowerCase()];
+    const platformMap = {
+      psn: "psn",
+      xbox: "xbl",
+      pc: "uplay",
+    };
+
+    const platform = platformMap[platformType.toLowerCase()];
     if (!platform) {
       return res.status(400).json({ error: "Invalid platform" });
     }
 
-    const family = platform === "uplay" ? "pc" : "console";
+    /* 🔥 DATA */
+    const r6 = await fetchR6Data(nameOnPlatform, platform);
+    const ubiPeak = await fetchUbisoftPeak(nameOnPlatform, platform);
 
-    const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platform}&platform_families=${family}`;
-
-    const statsRes = await fetchJson(
-      statsUrl,
-      `stats:${nameOnPlatform}:${platform}`
-    );
-
-    if (!statsRes.ok || !statsRes.json) {
-      return res.json({ ranked: null, casual: null });
-    }
-
-    const statsData = statsRes.json;
-
-    const {
-      rankedProfile,
-      rankedStats,
-      casualProfile,
-      casualStats,
-    } = parseStats(statsData);
-
-    const currentMMR = rankedProfile.rank_points || 0;
-    const currentRank = getRankFromMMR(currentMMR);
-
-    /* ============================= */
-    /* 🔥 FINAL PEAK SYSTEM */
-/* ============================= */
-
-    // API Peak (falls vorhanden)
-    const apiPeak = rankedProfile.max_rank_points || 0;
-
-    // gespeicherter Peak
-    const stored = getStoredPeak(nameOnPlatform, platform);
-
-    // aktueller Run → DB updaten
-    const updated = updatePeak(nameOnPlatform, platform, currentMMR);
-
-    // FINAL BEST VALUE
-    const finalMMR = Math.max(
-      currentMMR,
-      apiPeak,
-      stored?.mmr || 0,
-      updated?.mmr || 0
-    );
-
-    const finalRank = getRankFromMMR(finalMMR);
+    const currentMMR = r6?.mmr || 0;
+    const peakMMR = ubiPeak || currentMMR;
 
     const ranked = {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
-      kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
-      deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
-      kd:
-        rankedStats.kills && rankedStats.deaths
-          ? (rankedStats.kills / rankedStats.deaths).toFixed(2)
-          : null,
+      kills: r6?.kills,
+      deaths: r6?.deaths,
+      kd: r6?.deaths ? (r6.kills / r6.deaths).toFixed(2) : null,
 
-      wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
-      losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
+      wins: r6?.wins,
+      losses: r6?.losses,
 
-      rank: currentRank,
+      rank: getRankFromMMR(currentMMR),
       mmr: currentMMR,
 
-      /* 🔥 FINAL CORRECT PEAK */
-      bestRank: finalRank,
-      bestMMR: finalMMR,
+      /* 💣 FINAL FIX */
+      bestRank: getRankFromMMR(peakMMR),
+      bestMMR: peakMMR,
     };
 
-    const casual = {
-      username: nameOnPlatform,
-      platform: platform.toUpperCase(),
-
-      kills: casualStats.kills ?? casualProfile.kills ?? 0,
-      deaths: casualStats.deaths ?? casualProfile.deaths ?? 0,
-      kd:
-        casualStats.kills && casualStats.deaths
-          ? (casualStats.kills / casualStats.deaths).toFixed(2)
-          : null,
-
-      wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
-      losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
-
-      rank: "UNRANKED",
-      mmr: null,
-    };
-
-    res.setHeader("Cache-Control", "no-store");
-    res.json({ ranked, casual });
-
+    res.json({ ranked });
   } catch (err) {
-    console.error("❌ SERVER ERROR:", err);
+    console.error(err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -318,5 +241,5 @@ app.get("/api/stats", async (req, res) => {
 /* ============================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Backend running on port ${PORT}`);
+  console.log("🔥 Backend running on", PORT);
 });
