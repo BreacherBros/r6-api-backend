@@ -66,14 +66,34 @@ function setCache(key, data) {
 }
 
 /* ============================= */
-/* FETCH */
+/* SAFE FETCH (mit Timeout) */
 /* ============================= */
+async function safeFetch(url, options = {}, timeoutMs = 2000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+    return res;
+  } catch (err) {
+    clearTimeout(timeout);
+    return null;
+  }
+}
+
 async function fetchJson(url, key, headers = {}) {
   const cached = getCache(key);
   if (cached) return cached;
 
   try {
-    const res = await fetch(url, { headers });
+    const res = await safeFetch(url, { headers }, 2000);
+    if (!res) return { ok: false, json: null };
+
     const json = await res.json().catch(() => null);
 
     const result = { ok: res.ok, json };
@@ -81,7 +101,6 @@ async function fetchJson(url, key, headers = {}) {
 
     return result;
   } catch (err) {
-    console.error("❌ Fetch error:", err);
     return { ok: false, json: null };
   }
 }
@@ -93,7 +112,7 @@ async function ubiLogin() {
   if (!UBI_MAIL || !UBI_PASSWORD) return null;
 
   try {
-    const res = await fetch(
+    const res = await safeFetch(
       "https://public-ubiservices.ubi.com/v3/profiles/sessions",
       {
         method: "POST",
@@ -104,22 +123,20 @@ async function ubiLogin() {
             "Basic " +
             Buffer.from(`${UBI_MAIL}:${UBI_PASSWORD}`).toString("base64"),
         },
-      }
+      },
+      3000
     );
 
-    const json = await res.json().catch(() => null);
+    if (!res) return null;
 
-    if (!res.ok) {
-      console.log("❌ Ubisoft Login failed");
-      return null;
-    }
+    const json = await res.json().catch(() => null);
+    if (!res.ok) return null;
 
     return {
       ticket: json?.ticket,
       profileId: json?.profileId,
     };
-  } catch (err) {
-    console.log("❌ Ubisoft error:", err.message);
+  } catch {
     return null;
   }
 }
@@ -137,24 +154,21 @@ app.get("/api/test-ubi", async (req, res) => {
 });
 
 /* ============================= */
-/* TRACKER (SAFE) */
+/* TRACKER PEAK */
 /* ============================= */
 async function getTrackerPeak(name, platform) {
   if (!TRN_API_KEY) return null;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1500);
-
-    const res = await fetch(
+    const res = await safeFetch(
       `https://api.tracker.gg/api/v2/r6siege/standard/profile/${platform}/${name}`,
       {
         headers: { "TRN-Api-Key": TRN_API_KEY },
-        signal: controller.signal,
-      }
+      },
+      1500
     );
 
-    clearTimeout(timeout);
+    if (!res) return null;
 
     const json = await res.json().catch(() => null);
     if (!json) return null;
@@ -241,6 +255,9 @@ app.get("/api/stats", async (req, res) => {
       return res.status(400).json({ error: "Invalid platform" });
     }
 
+    /* ============================= */
+    /* FETCH (parallel + safe) */
+/* ============================= */
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(
       nameOnPlatform
     )}&platformType=${platform}`;
@@ -252,10 +269,7 @@ app.get("/api/stats", async (req, res) => {
     const [statsRes, historyRes, trackerPeak] = await Promise.all([
       fetchJson(statsUrl, `stats-${nameOnPlatform}-${platform}`),
       fetchJson(historyUrl, `hist-${nameOnPlatform}-${platform}`),
-      Promise.race([
-        getTrackerPeak(nameOnPlatform, platform),
-        new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
-      ]),
+      getTrackerPeak(nameOnPlatform, platform),
     ]);
 
     const stats = statsRes.json;
@@ -276,14 +290,27 @@ app.get("/api/stats", async (req, res) => {
 
     const currentRank = getRankFromMMR(currentMMR);
 
+    /* ============================= */
+    /* PEAK LOGIC (FINAL) */
+/* ============================= */
+
     const r6Peak = getR6Peak(history);
 
-    let bestMMR = Math.max(r6Peak || 0, trackerPeak?.mmr || 0);
+    let bestMMR = Math.max(
+      r6Peak || 0,
+      trackerPeak?.mmr || 0
+    );
+
     if (!bestMMR) bestMMR = currentMMR;
 
     const bestRank =
       trackerPeak?.rank ||
       getRankFromMMR(bestMMR);
+
+    /* ============================= */
+    /* RESPONSE */
+/* ============================= */
+    res.setHeader("Cache-Control", "no-store");
 
     res.json({
       ranked: {
