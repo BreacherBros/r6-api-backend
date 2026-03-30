@@ -45,18 +45,16 @@ if (!API_KEY) {
 /* ============================= */
 /* CACHE */
 /* ============================= */
-const CACHE_TTL_MS = 30_000;
+const CACHE_TTL_MS = 30000;
 const cache = new Map();
 
 function getCache(key) {
   const entry = cache.get(key);
   if (!entry) return null;
-
   if (Date.now() > entry.expiresAt) {
     cache.delete(key);
     return null;
   }
-
   return entry.value;
 }
 
@@ -78,17 +76,12 @@ async function fetchJson(url, key) {
 
     const json = await res.json().catch(() => null);
 
-    const result = {
-      ok: res.ok,
-      status: res.status,
-      json,
-    };
-
+    const result = { ok: res.ok, status: res.status, json };
     setCache(key, result);
     return result;
   } catch (err) {
     console.error("❌ Fetch error:", err);
-    return { ok: false, status: 0, json: null, error: err };
+    return { ok: false, status: 0, json: null };
   }
 }
 
@@ -104,45 +97,23 @@ const PLATFORM_MAP = {
 };
 
 /* ============================= */
-/* HELPERS */
+/* RANK SYSTEM */
 /* ============================= */
-const calcKD = (kills, deaths) => {
-  if (kills == null || deaths == null || deaths === 0) return null;
-  return (kills / deaths).toFixed(2);
-};
-
 const TIERS = [
   "COPPER","BRONZE","SILVER","GOLD",
   "PLATINUM","EMERALD","DIAMOND","CHAMPION"
 ];
 
-const RANK_COLORS = {
-  COPPER: "#a52019",
-  BRONZE: "#a97142",
-  SILVER: "#c0c0c0",
-  GOLD: "#ffd700",
-  PLATINUM: "#4fc3f7",
-  EMERALD: "#00ff88",
-  DIAMOND: "#00e5ff",
-  CHAMPION: "#ff0000",
-};
-
 function getRankFromMMR(mmr) {
-  if (mmr == null || mmr <= 0) return { name: "UNRANKED", color: "#888" };
+  if (!mmr || mmr <= 0) return "UNRANKED";
 
   let tier = Math.floor((mmr - 1000) / 500);
   tier = Math.max(0, Math.min(tier, TIERS.length - 1));
 
-  if (TIERS[tier] === "CHAMPION") {
-    return { name: "CHAMPION", color: RANK_COLORS.CHAMPION };
-  }
+  if (TIERS[tier] === "CHAMPION") return "CHAMPION";
 
   const division = 5 - Math.floor(((mmr - 1000) % 500) / 100);
-
-  return {
-    name: `${TIERS[tier]} ${division}`,
-    color: RANK_COLORS[TIERS[tier]] || "#fff",
-  };
+  return `${TIERS[tier]} ${division}`;
 }
 
 /* ============================= */
@@ -163,14 +134,18 @@ function saveDB(db) {
   fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
-function updatePeakDB(username, platform, mmr) {
+function getKey(username, platform) {
+  return `${username}_${platform}`;
+}
+
+function updatePeak(username, platform, mmr) {
   const db = loadDB();
-  const key = `${username}_${platform}`;
+  const key = getKey(username, platform);
 
   if (!db[key] || mmr > db[key].mmr) {
     db[key] = {
       mmr,
-      rank: getRankFromMMR(mmr).name,
+      rank: getRankFromMMR(mmr),
       updatedAt: new Date().toISOString(),
     };
     saveDB(db);
@@ -178,6 +153,29 @@ function updatePeakDB(username, platform, mmr) {
 
   return db[key];
 }
+
+function getStoredPeak(username, platform) {
+  const db = loadDB();
+  return db[getKey(username, platform)] || null;
+}
+
+/* ============================= */
+/* 🔥 MANUAL PEAK IMPORT (TRACKER) */
+/* ============================= */
+app.post("/api/setPeak", (req, res) => {
+  const { username, platform, mmr } = req.body;
+
+  if (!username || !platform || !mmr) {
+    return res.status(400).json({ error: "Missing data" });
+  }
+
+  const peak = updatePeak(username, platform, mmr);
+
+  res.json({
+    success: true,
+    peak,
+  });
+});
 
 /* ============================= */
 /* PARSE STATS */
@@ -222,7 +220,10 @@ app.get("/api/stats", async (req, res) => {
 
     const statsUrl = `https://r6data.eu/api/stats?type=stats&nameOnPlatform=${encodeURIComponent(nameOnPlatform)}&platformType=${platform}&platform_families=${family}`;
 
-    const statsRes = await fetchJson(statsUrl, `stats:${nameOnPlatform}:${platform}`);
+    const statsRes = await fetchJson(
+      statsUrl,
+      `stats:${nameOnPlatform}:${platform}`
+    );
 
     if (!statsRes.ok || !statsRes.json) {
       return res.json({ ranked: null, casual: null });
@@ -242,18 +243,24 @@ app.get("/api/stats", async (req, res) => {
 
     /* ============================= */
     /* 🔥 FINAL PEAK SYSTEM */
-    /* ============================= */
+/* ============================= */
 
-    // API Peak (dein bestehendes System bleibt)
-    const apiPeakMMR =
-      rankedProfile.max_rank_points ||
-      currentMMR;
+    // API Peak (falls vorhanden)
+    const apiPeak = rankedProfile.max_rank_points || 0;
 
-    // DB Peak (persistent)
-    const dbPeak = updatePeakDB(nameOnPlatform, platform, currentMMR);
+    // gespeicherter Peak
+    const stored = getStoredPeak(nameOnPlatform, platform);
 
-    // FINAL PEAK = BEST OF BOTH
-    const finalMMR = Math.max(apiPeakMMR || 0, dbPeak?.mmr || 0);
+    // aktueller Run → DB updaten
+    const updated = updatePeak(nameOnPlatform, platform, currentMMR);
+
+    // FINAL BEST VALUE
+    const finalMMR = Math.max(
+      currentMMR,
+      apiPeak,
+      stored?.mmr || 0,
+      updated?.mmr || 0
+    );
 
     const finalRank = getRankFromMMR(finalMMR);
 
@@ -263,19 +270,19 @@ app.get("/api/stats", async (req, res) => {
 
       kills: rankedStats.kills ?? rankedProfile.kills ?? 0,
       deaths: rankedStats.deaths ?? rankedProfile.deaths ?? 0,
-      kd: calcKD(
-        rankedStats.kills ?? rankedProfile.kills,
-        rankedStats.deaths ?? rankedProfile.deaths
-      ),
+      kd:
+        rankedStats.kills && rankedStats.deaths
+          ? (rankedStats.kills / rankedStats.deaths).toFixed(2)
+          : null,
 
       wins: rankedStats.match_outcomes?.wins ?? rankedProfile.wins ?? 0,
       losses: rankedStats.match_outcomes?.losses ?? rankedProfile.losses ?? 0,
 
-      rank: currentRank.name,
+      rank: currentRank,
       mmr: currentMMR,
 
-      /* 🔥 PERFEKTER PEAK */
-      bestRank: finalRank.name,
+      /* 🔥 FINAL CORRECT PEAK */
+      bestRank: finalRank,
       bestMMR: finalMMR,
     };
 
@@ -285,10 +292,10 @@ app.get("/api/stats", async (req, res) => {
 
       kills: casualStats.kills ?? casualProfile.kills ?? 0,
       deaths: casualStats.deaths ?? casualProfile.deaths ?? 0,
-      kd: calcKD(
-        casualStats.kills ?? casualProfile.kills,
-        casualStats.deaths ?? casualProfile.deaths
-      ),
+      kd:
+        casualStats.kills && casualStats.deaths
+          ? (casualStats.kills / casualStats.deaths).toFixed(2)
+          : null,
 
       wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
       losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
