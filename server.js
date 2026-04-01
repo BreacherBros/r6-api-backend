@@ -111,7 +111,7 @@ const PLATFORM_MAP = {
 /* HELPERS */
 /* ============================= */
 const calcKD = (kills, deaths) => {
-  if (kills == null || deaths == null || deaths === 0) return null;
+  if (!kills || !deaths || deaths === 0) return null;
   return (kills / deaths).toFixed(2);
 };
 
@@ -126,97 +126,21 @@ const RANK_ORDER = [
   "CHAMPION",
 ];
 
-const RANK_COLORS = {
-  COPPER: "#a52019",
-  BRONZE: "#a97142",
-  SILVER: "#c0c0c0",
-  GOLD: "#ffd700",
-  PLATINUM: "#4fc3f7",
-  EMERALD: "#00ff88",
-  DIAMOND: "#00e5ff",
-  CHAMPION: "#ff0000",
-};
-
 function getRankFromMMR(mmr) {
-  if (mmr == null || mmr <= 0) return { name: "UNRANKED", color: "#888" };
+  if (mmr == null || mmr <= 0) return { name: "UNRANKED" };
 
   let tierIndex = Math.floor((mmr - 1000) / 500);
   tierIndex = Math.max(0, Math.min(tierIndex, RANK_ORDER.length - 1));
 
   if (RANK_ORDER[tierIndex] === "CHAMPION") {
-    return { name: "CHAMPION", color: RANK_COLORS.CHAMPION };
+    return { name: "CHAMPION" };
   }
 
   const division = 5 - Math.floor(((mmr - 1000) % 500) / 100);
 
   return {
     name: `${RANK_ORDER[tierIndex]} ${division}`,
-    color: RANK_COLORS[RANK_ORDER[tierIndex]] || "#fff",
   };
-}
-
-function parseRankLabel(label) {
-  if (typeof label !== "string") return null;
-
-  const clean = label.trim().toUpperCase();
-  const match = clean.match(
-    /^(COPPER|BRONZE|SILVER|GOLD|PLATINUM|EMERALD|DIAMOND|CHAMPION)\s*([1-5])?$/
-  );
-
-  if (!match) return null;
-
-  return {
-    tier: match[1],
-    division: match[2] ? Number(match[2]) : null,
-  };
-}
-
-function formatRankLabel(label, mmr) {
-  const parsed = parseRankLabel(label);
-  if (parsed) {
-    if (parsed.tier === "CHAMPION") return "CHAMPION";
-    if (parsed.division == null) return parsed.tier;
-    return `${parsed.tier} ${parsed.division}`;
-  }
-
-  if (typeof label === "string" && label.trim()) {
-    return label.trim().toUpperCase();
-  }
-
-  return getRankFromMMR(mmr).name;
-}
-
-function rankScoreFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
-
-  const tierIndex = RANK_ORDER.indexOf(parsed.tier);
-  if (tierIndex < 0) return null;
-
-  if (parsed.tier === "CHAMPION") return 1000;
-
-  const divisionScore = parsed.division ? 5 - parsed.division : 0;
-  return tierIndex * 10 + divisionScore;
-}
-
-function rankColorFromLabel(label) {
-  const parsed = parseRankLabel(label);
-  if (!parsed) return null;
-  return RANK_COLORS[parsed.tier] || null;
-}
-
-function firstString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
-function firstNumber(...values) {
-  for (const value of values) {
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return null;
 }
 
 function parseStats(data) {
@@ -236,11 +160,8 @@ function parseStats(data) {
     rankedStats: rankedBoard?.full_profiles?.[0]?.season_statistics || {},
     casualProfile: casualBoard?.full_profiles?.[0]?.profile || {},
     casualStats: casualBoard?.full_profiles?.[0]?.season_statistics || {},
-    rankedBoard,
-    casualBoard,
   };
 }
-
 
 /* ============================= */
 /* API */
@@ -251,10 +172,6 @@ app.get("/api/stats", async (req, res) => {
 
     if (!nameOnPlatform || !platformType) {
       return res.status(400).json({ error: "Missing parameters" });
-    }
-
-    if (!API_KEY) {
-      return res.status(500).json({ error: "API KEY missing" });
     }
 
     const platform = PLATFORM_MAP[platformType.toLowerCase()];
@@ -272,14 +189,9 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${platform}`;
 
-    const seasonalUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
-      nameOnPlatform
-    )}&platformType=${platform}&platform_families=${family}`;
-
-    const [statsRes, historyRes, seasonalRes] = await Promise.all([
+    const [statsRes, historyRes] = await Promise.all([
       fetchJson(statsUrl, `stats:${nameOnPlatform}:${platform}`),
       fetchJson(historyUrl, `history:${nameOnPlatform}:${platform}`),
-      fetchJson(seasonalUrl, `seasonal:${nameOnPlatform}:${platform}`),
     ]);
 
     if (!statsRes.ok || !statsRes.json) {
@@ -288,13 +200,6 @@ app.get("/api/stats", async (req, res) => {
 
     const statsData = statsRes.json;
     const historyData = historyRes?.json || null;
-    const seasonalData = seasonalRes?.json || null;
-
-    if (!statsData?.platform_families_full_profiles) {
-      return res.json({ ranked: null, casual: null });
-    }
-
-    const topLevelStats = statsData?.profiles?.[0]?.stats || {};
 
     const {
       rankedProfile,
@@ -303,57 +208,120 @@ app.get("/api/stats", async (req, res) => {
       casualStats,
     } = parseStats(statsData);
 
-    const currentMMR =
-      rankedProfile.rank_points ??
-      rankedProfile.rankPoints ??
-      rankedProfile.elo ??
-      topLevelStats.rankPoints ??
+    const kills =
+      rankedStats.kills ?? rankedProfile.kills ?? 0;
+
+    const deaths =
+      rankedStats.deaths ?? rankedProfile.deaths ?? 0;
+
+    const wins =
+      rankedStats.match_outcomes?.wins ??
+      rankedProfile.wins ??
       0;
 
+    const losses =
+      rankedStats.match_outcomes?.losses ??
+      rankedProfile.losses ??
+      0;
+
+    const abandons =
+      rankedStats.match_outcomes?.abandons ??
+      rankedProfile.abandon ??
+      0;
+
+    const matches = wins + losses;
+
+    const kd = calcKD(kills, deaths);
+
+    const winrate =
+      matches > 0 ? ((wins / matches) * 100).toFixed(1) : null;
+
+    const wlRatio =
+      losses > 0 ? (wins / losses).toFixed(2) : null;
+
+    const killsPerMatch =
+      matches > 0 ? (kills / matches).toFixed(2) : null;
+
+    const deathsPerMatch =
+      matches > 0 ? (deaths / matches).toFixed(2) : null;
+
+    const abandonRate =
+      matches > 0 ? ((abandons / matches) * 100).toFixed(1) : null;
+
+    const currentMMR = rankedProfile.rank_points ?? 0;
     const currentRank = getRankFromMMR(currentMMR);
 
     /* ============================= */
-    /* PEAK: nur die gewählte Plattform */
+    /* HISTORY (PRO TRACKER CORE) */
     /* ============================= */
-       /* ============================= */
-    /* KEIN PEAK – DIREKTER RESPONSE */
+
+    let mmrChange = null;
+    let form = "";
+    let last10 = { kd: null, winrate: null };
+
+    if (Array.isArray(historyData)) {
+      const sorted = [...historyData].sort(
+        (a, b) => new Date(a.date) - new Date(b.date)
+      );
+
+      if (sorted.length > 1) {
+        mmrChange =
+          sorted[sorted.length - 1].mmr -
+          sorted[0].mmr;
+      }
+
+      const lastGames = sorted.slice(-10);
+
+      let k = 0;
+      let d = 0;
+      let w = 0;
+
+      form = lastGames
+        .map((g) => {
+          if (g.kills) k += g.kills;
+          if (g.deaths) d += g.deaths;
+          if (g.result === "win") w++;
+          return g.result === "win" ? "W" : "L";
+        })
+        .join("");
+
+      const total = lastGames.length;
+
+      last10 = {
+        kd: d > 0 ? (k / d).toFixed(2) : null,
+        winrate:
+          total > 0 ? ((w / total) * 100).toFixed(0) : null,
+      };
+    }
+
+    /* ============================= */
+    /* RESPONSE */
     /* ============================= */
 
     const ranked = {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
-      kills:
-        rankedStats.kills ??
-        rankedProfile.kills ??
-        topLevelStats.kills ??
-        0,
-
-      deaths:
-        rankedStats.deaths ??
-        rankedProfile.deaths ??
-        topLevelStats.deaths ??
-        0,
-
-      kd: calcKD(
-        rankedStats.kills ?? rankedProfile.kills ?? topLevelStats.kills,
-        rankedStats.deaths ?? rankedProfile.deaths ?? topLevelStats.deaths
-      ),
-
-      wins:
-        rankedStats.match_outcomes?.wins ??
-        rankedProfile.wins ??
-        topLevelStats.matchesWon ??
-        0,
-
-      losses:
-        rankedStats.match_outcomes?.losses ??
-        rankedProfile.losses ??
-        topLevelStats.matchesLost ??
-        0,
-
       rank: currentRank.name,
       mmr: currentMMR,
+
+      kills,
+      deaths,
+      kd,
+
+      wins,
+      losses,
+      matches,
+      winrate,
+
+      wlRatio,
+      killsPerMatch,
+      deathsPerMatch,
+      abandonRate,
+
+      mmrChange,
+      form,
+      last10,
     };
 
     const casual = {
