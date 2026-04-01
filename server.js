@@ -229,22 +229,36 @@ app.get("/api/stats", async (req, res) => {
     const mmr = safeNum(rankedProfile.rank_points);
 
     /* ============================= */
-    /* HISTORY (ULTRA SAFE) */
+    /* 🔥 HISTORY FIX (WICHTIG) */
     /* ============================= */
 
     let mmrChange = 0;
     let form = "—";
     let last10 = { kd: "0.00", winrate: "0" };
 
-    if (Array.isArray(historyData) && historyData.length > 0) {
-      const sorted = historyData
-        .filter((g) => g && g.date)
-        .sort((a, b) => new Date(a.date) - new Date(b.date));
+    let historyArray = null;
+
+    if (Array.isArray(historyData)) {
+      historyArray = historyData;
+    } else if (Array.isArray(historyData?.data)) {
+      historyArray = historyData.data;
+    } else if (Array.isArray(historyData?.history)) {
+      historyArray = historyData.history;
+    }
+
+    if (historyArray && historyArray.length > 0) {
+      const sorted = historyArray
+        .filter((g) => g && (g.date || g.created_at))
+        .sort(
+          (a, b) =>
+            new Date(a.date || a.created_at) -
+            new Date(b.date || b.created_at)
+        );
 
       if (sorted.length > 1) {
         mmrChange =
-          safeNum(sorted.at(-1)?.mmr) -
-          safeNum(sorted.at(0)?.mmr);
+          (sorted.at(-1)?.mmr || 0) -
+          (sorted[0]?.mmr || 0);
       }
 
       const lastGames = sorted.slice(-10);
@@ -259,7 +273,12 @@ app.get("/api/stats", async (req, res) => {
         k += safeNum(g.kills);
         d += safeNum(g.deaths);
 
-        if (g.result === "win") {
+        const win =
+          g.result === "win" ||
+          g.win === true ||
+          g.outcome === "win";
+
+        if (win) {
           w++;
           formArray.push("W");
         } else {
