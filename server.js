@@ -109,7 +109,7 @@ const PLATFORM_MAP = {
 /* ============================= */
 /* HELPERS */
 /* ============================= */
-const safeNum = (v) => (typeof v === "number" ? v : 0);
+const safeNum = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 const calcKD = (k, d) => {
   if (!k || !d || d === 0) return "0.00";
@@ -134,6 +134,46 @@ function parseStats(data) {
     casualProfile: casual?.full_profiles?.[0]?.profile || {},
     casualStats: casual?.full_profiles?.[0]?.season_statistics || {},
   };
+}
+
+function extractHistoryArray(historyData) {
+  if (Array.isArray(historyData)) return historyData;
+  if (Array.isArray(historyData?.data)) return historyData.data;
+  if (Array.isArray(historyData?.history)) return historyData.history;
+  if (Array.isArray(historyData?.results)) return historyData.results;
+  if (Array.isArray(historyData?.items)) return historyData.items;
+  return null;
+}
+
+function getHistoryDate(entry) {
+  return entry?.date || entry?.created_at || entry?.played_at || entry?.match_date || null;
+}
+
+function getHistoryMMR(entry) {
+  return safeNum(
+    entry?.mmr ??
+      entry?.rank_points ??
+      entry?.rankPoints ??
+      entry?.rp ??
+      entry?.elo ??
+      0
+  );
+}
+
+function getHistoryKills(entry) {
+  return safeNum(entry?.kills ?? entry?.kill_count ?? entry?.k ?? 0);
+}
+
+function getHistoryDeaths(entry) {
+  return safeNum(entry?.deaths ?? entry?.death_count ?? entry?.d ?? 0);
+}
+
+function isHistoryWin(entry) {
+  if (entry?.result === "win") return true;
+  if (entry?.outcome === "win") return true;
+  if (entry?.win === true) return true;
+  if (entry?.won === true) return true;
+  return false;
 }
 
 /* ============================= */
@@ -162,9 +202,14 @@ app.get("/api/stats", async (req, res) => {
       nameOnPlatform
     )}&platformType=${platform}`;
 
-    const [statsRes, historyRes] = await Promise.all([
+    const seasonalUrl = `https://r6data.eu/api/stats?type=seasonalStats&nameOnPlatform=${encodeURIComponent(
+      nameOnPlatform
+    )}&platformType=${platform}&platform_families=${family}`;
+
+    const [statsRes, historyRes, seasonalRes] = await Promise.all([
       fetchJson(statsUrl, `stats:${nameOnPlatform}:${platform}`),
       fetchJson(historyUrl, `history:${nameOnPlatform}:${platform}`),
+      fetchJson(seasonalUrl, `seasonal:${nameOnPlatform}:${platform}`),
     ]);
 
     if (!statsRes.ok || !statsRes.json) {
@@ -172,7 +217,8 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const statsData = statsRes.json;
-    const historyData = historyRes?.json;
+    const historyData = historyRes?.json || null;
+    const seasonalData = seasonalRes?.json || null;
 
     const {
       rankedProfile,
@@ -184,81 +230,56 @@ app.get("/api/stats", async (req, res) => {
     /* ============================= */
     /* CORE STATS */
     /* ============================= */
-
-    const kills = safeNum(
-      rankedStats.kills ?? rankedProfile.kills
-    );
-
-    const deaths = safeNum(
-      rankedStats.deaths ?? rankedProfile.deaths
-    );
-
+    const kills = safeNum(rankedStats.kills ?? rankedProfile.kills);
+    const deaths = safeNum(rankedStats.deaths ?? rankedProfile.deaths);
     const wins = safeNum(
-      rankedStats.match_outcomes?.wins ?? rankedProfile.wins
+      rankedStats.match_outcomes?.wins ??
+        rankedProfile.wins ??
+        rankedProfile.match_outcomes?.wins
     );
-
     const losses = safeNum(
-      rankedStats.match_outcomes?.losses ?? rankedProfile.losses
+      rankedStats.match_outcomes?.losses ??
+        rankedProfile.losses ??
+        rankedProfile.match_outcomes?.losses
     );
-
     const abandons = safeNum(
-      rankedStats.match_outcomes?.abandons ?? rankedProfile.abandon
+      rankedStats.match_outcomes?.abandons ??
+        rankedProfile.abandon ??
+        rankedProfile.match_outcomes?.abandons
     );
 
     const matches = wins + losses;
-
     const kd = calcKD(kills, deaths);
+    const winrate = matches > 0 ? ((wins / matches) * 100).toFixed(1) : "0.0";
+    const wlRatio = losses > 0 ? (wins / losses).toFixed(2) : "0.00";
+    const killsPerMatch = matches > 0 ? (kills / matches).toFixed(2) : "0.00";
+    const deathsPerMatch = matches > 0 ? (deaths / matches).toFixed(2) : "0.00";
+    const abandonRate = matches > 0 ? ((abandons / matches) * 100).toFixed(1) : "0.0";
 
-    const winrate =
-      matches > 0 ? ((wins / matches) * 100).toFixed(1) : "0.0";
-
-    const wlRatio =
-      losses > 0 ? (wins / losses).toFixed(2) : "0.00";
-
-    const killsPerMatch =
-      matches > 0 ? (kills / matches).toFixed(2) : "0.00";
-
-    const deathsPerMatch =
-      matches > 0 ? (deaths / matches).toFixed(2) : "0.00";
-
-    const abandonRate =
-      matches > 0
-        ? ((abandons / matches) * 100).toFixed(1)
-        : "0.0";
-
-    const mmr = safeNum(rankedProfile.rank_points);
+    const mmr = safeNum(
+      rankedProfile.rank_points ??
+      rankedProfile.rankPoints ??
+      rankedProfile.elo ??
+      statsData?.profiles?.[0]?.stats?.rankPoints ??
+      0
+    );
 
     /* ============================= */
-    /* 🔥 HISTORY FIX (WICHTIG) */
+    /* HISTORY / FORM */
     /* ============================= */
-
     let mmrChange = 0;
     let form = "—";
     let last10 = { kd: "0.00", winrate: "0" };
 
-    let historyArray = null;
-
-    if (Array.isArray(historyData)) {
-      historyArray = historyData;
-    } else if (Array.isArray(historyData?.data)) {
-      historyArray = historyData.data;
-    } else if (Array.isArray(historyData?.history)) {
-      historyArray = historyData.history;
-    }
+    const historyArray = extractHistoryArray(historyData);
 
     if (historyArray && historyArray.length > 0) {
       const sorted = historyArray
-        .filter((g) => g && (g.date || g.created_at))
-        .sort(
-          (a, b) =>
-            new Date(a.date || a.created_at) -
-            new Date(b.date || b.created_at)
-        );
+        .filter((g) => g && getHistoryDate(g))
+        .sort((a, b) => new Date(getHistoryDate(a)) - new Date(getHistoryDate(b)));
 
       if (sorted.length > 1) {
-        mmrChange =
-          (sorted.at(-1)?.mmr || 0) -
-          (sorted[0]?.mmr || 0);
+        mmrChange = getHistoryMMR(sorted.at(-1)) - getHistoryMMR(sorted[0]);
       }
 
       const lastGames = sorted.slice(-10);
@@ -270,14 +291,10 @@ app.get("/api/stats", async (req, res) => {
       const formArray = [];
 
       for (const g of lastGames) {
-        k += safeNum(g.kills);
-        d += safeNum(g.deaths);
+        k += getHistoryKills(g);
+        d += getHistoryDeaths(g);
 
-        const win =
-          g.result === "win" ||
-          g.win === true ||
-          g.outcome === "win";
-
+        const win = isHistoryWin(g);
         if (win) {
           w++;
           formArray.push("W");
@@ -287,26 +304,38 @@ app.get("/api/stats", async (req, res) => {
       }
 
       form = formArray.join("");
-
       const total = lastGames.length;
 
       last10 = {
         kd: d > 0 ? (k / d).toFixed(2) : "0.00",
-        winrate:
-          total > 0
-            ? ((w / total) * 100).toFixed(0)
-            : "0",
+        winrate: total > 0 ? ((w / total) * 100).toFixed(0) : "0",
       };
     }
 
     /* ============================= */
+    /* OPTIONAL SEASONAL EXTRA (if present) */
+    /* ============================= */
+    const seasonalRoot =
+      seasonalData?.platform_families_full_profiles?.[0] ||
+      seasonalData?.profiles?.[0] ||
+      null;
+
+    const seasonalBoard =
+      seasonalRoot?.board_ids_full_profiles?.find((b) =>
+        ["ranked", "pvp_ranked", "standard", "pvp_casual"].includes(b.board_id)
+      ) || null;
+
+    const seasonalProfile = seasonalBoard?.full_profiles?.[0]?.profile || {};
+    const seasonalStats = seasonalBoard?.full_profiles?.[0]?.season_statistics || {};
+
+    /* ============================= */
     /* RESPONSE */
     /* ============================= */
-
     const ranked = {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
+      rank: mmr > 0 ? `MMR ${mmr}` : "UNRANKED",
       mmr,
 
       kills,
@@ -326,25 +355,45 @@ app.get("/api/stats", async (req, res) => {
       mmrChange,
       form,
       last10,
+
+      seasonal: {
+        kills: safeNum(seasonalStats.kills ?? seasonalProfile.kills),
+        deaths: safeNum(seasonalStats.deaths ?? seasonalProfile.deaths),
+        wins: safeNum(seasonalStats.match_outcomes?.wins ?? seasonalProfile.wins),
+        losses: safeNum(seasonalStats.match_outcomes?.losses ?? seasonalProfile.losses),
+        rankPoints: safeNum(seasonalProfile.rank_points ?? seasonalProfile.rankPoints),
+      },
+
+      metrics: {
+        matches,
+        kd,
+        winrate,
+        wlRatio,
+        killsPerMatch,
+        deathsPerMatch,
+        abandonRate,
+        mmrChange,
+      },
     };
+
+    const casualKills = safeNum(casualStats.kills ?? casualProfile.kills);
+    const casualDeaths = safeNum(casualStats.deaths ?? casualProfile.deaths);
+    const casualWins = safeNum(casualStats.match_outcomes?.wins ?? casualProfile.wins);
+    const casualLosses = safeNum(casualStats.match_outcomes?.losses ?? casualProfile.losses);
+    const casualMatches = casualWins + casualLosses;
 
     const casual = {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
-      kills: safeNum(casualStats.kills ?? casualProfile.kills),
-      deaths: safeNum(casualStats.deaths ?? casualProfile.deaths),
-      kd: calcKD(
-        safeNum(casualStats.kills ?? casualProfile.kills),
-        safeNum(casualStats.deaths ?? casualProfile.deaths)
-      ),
+      kills: casualKills,
+      deaths: casualDeaths,
+      kd: calcKD(casualKills, casualDeaths),
 
-      wins: safeNum(
-        casualStats.match_outcomes?.wins ?? casualProfile.wins
-      ),
-      losses: safeNum(
-        casualStats.match_outcomes?.losses ?? casualProfile.losses
-      ),
+      wins: casualWins,
+      losses: casualLosses,
+      matches: casualMatches,
+      winrate: casualMatches > 0 ? ((casualWins / casualMatches) * 100).toFixed(1) : "0.0",
 
       rank: "UNRANKED",
       mmr: null,
@@ -352,7 +401,6 @@ app.get("/api/stats", async (req, res) => {
 
     res.setHeader("Cache-Control", "no-store");
     res.json({ ranked, casual });
-
   } catch (err) {
     console.error("❌ SERVER ERROR:", err);
     res.status(500).json({ error: "Server error" });
