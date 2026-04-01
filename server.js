@@ -91,7 +91,6 @@ async function fetchJson(url, cacheKey) {
       ok: false,
       status: 0,
       json: null,
-      error,
     };
   }
 }
@@ -110,56 +109,30 @@ const PLATFORM_MAP = {
 /* ============================= */
 /* HELPERS */
 /* ============================= */
-const calcKD = (kills, deaths) => {
-  if (!kills || !deaths || deaths === 0) return null;
-  return (kills / deaths).toFixed(2);
+const safeNum = (v) => (typeof v === "number" ? v : 0);
+
+const calcKD = (k, d) => {
+  if (!k || !d || d === 0) return "0.00";
+  return (k / d).toFixed(2);
 };
-
-const RANK_ORDER = [
-  "COPPER",
-  "BRONZE",
-  "SILVER",
-  "GOLD",
-  "PLATINUM",
-  "EMERALD",
-  "DIAMOND",
-  "CHAMPION",
-];
-
-function getRankFromMMR(mmr) {
-  if (mmr == null || mmr <= 0) return { name: "UNRANKED" };
-
-  let tierIndex = Math.floor((mmr - 1000) / 500);
-  tierIndex = Math.max(0, Math.min(tierIndex, RANK_ORDER.length - 1));
-
-  if (RANK_ORDER[tierIndex] === "CHAMPION") {
-    return { name: "CHAMPION" };
-  }
-
-  const division = 5 - Math.floor(((mmr - 1000) % 500) / 100);
-
-  return {
-    name: `${RANK_ORDER[tierIndex]} ${division}`,
-  };
-}
 
 function parseStats(data) {
   const root = data?.platform_families_full_profiles?.[0];
   const boards = root?.board_ids_full_profiles || [];
 
-  const rankedBoard = boards.find((b) =>
+  const ranked = boards.find((b) =>
     ["pvp_ranked", "ranked"].includes(b.board_id)
   );
 
-  const casualBoard = boards.find((b) =>
+  const casual = boards.find((b) =>
     ["pvp_casual", "standard"].includes(b.board_id)
   );
 
   return {
-    rankedProfile: rankedBoard?.full_profiles?.[0]?.profile || {},
-    rankedStats: rankedBoard?.full_profiles?.[0]?.season_statistics || {},
-    casualProfile: casualBoard?.full_profiles?.[0]?.profile || {},
-    casualStats: casualBoard?.full_profiles?.[0]?.season_statistics || {},
+    rankedProfile: ranked?.full_profiles?.[0]?.profile || {},
+    rankedStats: ranked?.full_profiles?.[0]?.season_statistics || {},
+    casualProfile: casual?.full_profiles?.[0]?.profile || {},
+    casualStats: casual?.full_profiles?.[0]?.season_statistics || {},
   };
 }
 
@@ -199,7 +172,7 @@ app.get("/api/stats", async (req, res) => {
     }
 
     const statsData = statsRes.json;
-    const historyData = historyRes?.json || null;
+    const historyData = historyRes?.json;
 
     const {
       rankedProfile,
@@ -208,66 +181,70 @@ app.get("/api/stats", async (req, res) => {
       casualStats,
     } = parseStats(statsData);
 
-    const kills =
-      rankedStats.kills ?? rankedProfile.kills ?? 0;
+    /* ============================= */
+    /* CORE STATS */
+    /* ============================= */
 
-    const deaths =
-      rankedStats.deaths ?? rankedProfile.deaths ?? 0;
+    const kills = safeNum(
+      rankedStats.kills ?? rankedProfile.kills
+    );
 
-    const wins =
-      rankedStats.match_outcomes?.wins ??
-      rankedProfile.wins ??
-      0;
+    const deaths = safeNum(
+      rankedStats.deaths ?? rankedProfile.deaths
+    );
 
-    const losses =
-      rankedStats.match_outcomes?.losses ??
-      rankedProfile.losses ??
-      0;
+    const wins = safeNum(
+      rankedStats.match_outcomes?.wins ?? rankedProfile.wins
+    );
 
-    const abandons =
-      rankedStats.match_outcomes?.abandons ??
-      rankedProfile.abandon ??
-      0;
+    const losses = safeNum(
+      rankedStats.match_outcomes?.losses ?? rankedProfile.losses
+    );
+
+    const abandons = safeNum(
+      rankedStats.match_outcomes?.abandons ?? rankedProfile.abandon
+    );
 
     const matches = wins + losses;
 
     const kd = calcKD(kills, deaths);
 
     const winrate =
-      matches > 0 ? ((wins / matches) * 100).toFixed(1) : null;
+      matches > 0 ? ((wins / matches) * 100).toFixed(1) : "0.0";
 
     const wlRatio =
-      losses > 0 ? (wins / losses).toFixed(2) : null;
+      losses > 0 ? (wins / losses).toFixed(2) : "0.00";
 
     const killsPerMatch =
-      matches > 0 ? (kills / matches).toFixed(2) : null;
+      matches > 0 ? (kills / matches).toFixed(2) : "0.00";
 
     const deathsPerMatch =
-      matches > 0 ? (deaths / matches).toFixed(2) : null;
+      matches > 0 ? (deaths / matches).toFixed(2) : "0.00";
 
     const abandonRate =
-      matches > 0 ? ((abandons / matches) * 100).toFixed(1) : null;
+      matches > 0
+        ? ((abandons / matches) * 100).toFixed(1)
+        : "0.0";
 
-    const currentMMR = rankedProfile.rank_points ?? 0;
-    const currentRank = getRankFromMMR(currentMMR);
+    const mmr = safeNum(rankedProfile.rank_points);
 
     /* ============================= */
-    /* HISTORY (PRO TRACKER CORE) */
+    /* HISTORY (ULTRA SAFE) */
     /* ============================= */
 
-    let mmrChange = null;
-    let form = "";
-    let last10 = { kd: null, winrate: null };
+    let mmrChange = 0;
+    let form = "—";
+    let last10 = { kd: "0.00", winrate: "0" };
 
-    if (Array.isArray(historyData)) {
-      const sorted = [...historyData].sort(
-        (a, b) => new Date(a.date) - new Date(b.date)
-      );
+    if (Array.isArray(historyData) && historyData.length > 0) {
+      const sorted = historyData
+        .filter((g) => g && g.date)
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
 
       if (sorted.length > 1) {
         mmrChange =
-          sorted[sorted.length - 1].mmr -
-          sorted[0].mmr;
+          safeNum(sorted.at(-1)?.mmr) -
+          safeNum(sorted.at(0)?.mmr);
       }
 
       const lastGames = sorted.slice(-10);
@@ -276,21 +253,30 @@ app.get("/api/stats", async (req, res) => {
       let d = 0;
       let w = 0;
 
-      form = lastGames
-        .map((g) => {
-          if (g.kills) k += g.kills;
-          if (g.deaths) d += g.deaths;
-          if (g.result === "win") w++;
-          return g.result === "win" ? "W" : "L";
-        })
-        .join("");
+      const formArray = [];
+
+      for (const g of lastGames) {
+        k += safeNum(g.kills);
+        d += safeNum(g.deaths);
+
+        if (g.result === "win") {
+          w++;
+          formArray.push("W");
+        } else {
+          formArray.push("L");
+        }
+      }
+
+      form = formArray.join("");
 
       const total = lastGames.length;
 
       last10 = {
-        kd: d > 0 ? (k / d).toFixed(2) : null,
+        kd: d > 0 ? (k / d).toFixed(2) : "0.00",
         winrate:
-          total > 0 ? ((w / total) * 100).toFixed(0) : null,
+          total > 0
+            ? ((w / total) * 100).toFixed(0)
+            : "0",
       };
     }
 
@@ -302,8 +288,7 @@ app.get("/api/stats", async (req, res) => {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
-      rank: currentRank.name,
-      mmr: currentMMR,
+      mmr,
 
       kills,
       deaths,
@@ -328,15 +313,19 @@ app.get("/api/stats", async (req, res) => {
       username: nameOnPlatform,
       platform: platform.toUpperCase(),
 
-      kills: casualStats.kills ?? casualProfile.kills ?? 0,
-      deaths: casualStats.deaths ?? casualProfile.deaths ?? 0,
+      kills: safeNum(casualStats.kills ?? casualProfile.kills),
+      deaths: safeNum(casualStats.deaths ?? casualProfile.deaths),
       kd: calcKD(
-        casualStats.kills ?? casualProfile.kills,
-        casualStats.deaths ?? casualProfile.deaths
+        safeNum(casualStats.kills ?? casualProfile.kills),
+        safeNum(casualStats.deaths ?? casualProfile.deaths)
       ),
 
-      wins: casualStats.match_outcomes?.wins ?? casualProfile.wins ?? 0,
-      losses: casualStats.match_outcomes?.losses ?? casualProfile.losses ?? 0,
+      wins: safeNum(
+        casualStats.match_outcomes?.wins ?? casualProfile.wins
+      ),
+      losses: safeNum(
+        casualStats.match_outcomes?.losses ?? casualProfile.losses
+      ),
 
       rank: "UNRANKED",
       mmr: null,
