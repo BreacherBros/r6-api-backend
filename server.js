@@ -116,6 +116,21 @@ const calcKD = (k, d) => {
   return (k / d).toFixed(2);
 };
 
+/**
+ * Picks the first meaningful numeric value.
+ * Prefers non-zero values from stats/profile, but will still return 0 if all are 0.
+ */
+function pickStat(...values) {
+  const nums = values
+    .map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null))
+    .filter((v) => v !== null);
+
+  if (nums.length === 0) return 0;
+
+  const firstNonZero = nums.find((v) => v !== 0);
+  return firstNonZero !== undefined ? firstNonZero : nums[0];
+}
+
 function parseStats(data) {
   const root = data?.platform_families_full_profiles?.[0];
   const boards = root?.board_ids_full_profiles || [];
@@ -125,7 +140,7 @@ function parseStats(data) {
   );
 
   const casual = boards.find((b) =>
-    ["pvp_casual", "standard", "casual"].includes(
+    ["pvp_casual", "standard", "casual", "unranked"].includes(
       String(b.board_id || "").toLowerCase()
     )
   );
@@ -195,25 +210,25 @@ function buildStatsObject({
   rankedMode,
   historySummary,
 }) {
-  const kills = safeNum(stats.kills ?? profile.kills);
-  const deaths = safeNum(stats.deaths ?? profile.deaths);
+  const kills = pickStat(stats.kills, profile.kills, stats.kill_count, profile.kill_count);
+  const deaths = pickStat(stats.deaths, profile.deaths, stats.death_count, profile.death_count);
 
-  const wins = safeNum(
-    stats.match_outcomes?.wins ??
-      profile.wins ??
-      profile.match_outcomes?.wins
+  const wins = pickStat(
+    stats.match_outcomes?.wins,
+    profile.wins,
+    profile.match_outcomes?.wins
   );
 
-  const losses = safeNum(
-    stats.match_outcomes?.losses ??
-      profile.losses ??
-      profile.match_outcomes?.losses
+  const losses = pickStat(
+    stats.match_outcomes?.losses,
+    profile.losses,
+    profile.match_outcomes?.losses
   );
 
-  const abandons = safeNum(
-    stats.match_outcomes?.abandons ??
-      profile.abandon ??
-      profile.match_outcomes?.abandons
+  const abandons = pickStat(
+    stats.match_outcomes?.abandons,
+    profile.abandon,
+    profile.match_outcomes?.abandons
   );
 
   const matches = wins + losses;
