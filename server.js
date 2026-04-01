@@ -121,11 +121,13 @@ function parseStats(data) {
   const boards = root?.board_ids_full_profiles || [];
 
   const ranked = boards.find((b) =>
-    ["pvp_ranked", "ranked"].includes(b.board_id)
+    ["pvp_ranked", "ranked"].includes(String(b.board_id || "").toLowerCase())
   );
 
   const casual = boards.find((b) =>
-    ["pvp_casual", "standard"].includes(b.board_id)
+    ["pvp_casual", "standard", "casual"].includes(
+      String(b.board_id || "").toLowerCase()
+    )
   );
 
   return {
@@ -133,6 +135,8 @@ function parseStats(data) {
     rankedStats: ranked?.full_profiles?.[0]?.season_statistics || {},
     casualProfile: casual?.full_profiles?.[0]?.profile || {},
     casualStats: casual?.full_profiles?.[0]?.season_statistics || {},
+    rankedBoard: ranked || null,
+    casualBoard: casual || null,
   };
 }
 
@@ -220,7 +224,7 @@ function buildStatsObject({
   const deathsPerMatch = matches > 0 ? (deaths / matches).toFixed(2) : "0.00";
   const abandonRate = matches > 0 ? ((abandons / matches) * 100).toFixed(1) : "0.0";
 
-  const base = {
+  return {
     username,
     platform: platform.toUpperCase(),
 
@@ -249,8 +253,6 @@ function buildStatsObject({
     form: historySummary?.form ?? "—",
     last10: historySummary?.last10 ?? { kd: "0.00", winrate: "0" },
   };
-
-  return base;
 }
 
 /* ============================= */
@@ -374,8 +376,8 @@ app.get("/api/stats", async (req, res) => {
 
     const seasonalBoard =
       seasonalRoot?.board_ids_full_profiles?.find((b) =>
-        ["ranked", "pvp_ranked", "standard", "pvp_casual"].includes(
-          b.board_id
+        ["ranked", "pvp_ranked", "standard", "pvp_casual", "casual"].includes(
+          String(b.board_id || "").toLowerCase()
         )
       ) || null;
 
